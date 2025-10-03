@@ -32,6 +32,7 @@ app.include_router(applications.router)
 app.include_router(profiles.router)
 
 
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Resume Tailor API"}

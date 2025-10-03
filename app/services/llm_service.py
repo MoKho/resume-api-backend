@@ -104,6 +104,10 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 
     # Retrieve the list of provider-model pairs for the given workload_difficulty
     available_models = model_mapping.get(workload_difficulty)
+    # Sanity check for static type-checkers: ensure we actually got a list
+    if not available_models:
+        logger.error(f"No models configured for workload_difficulty: {workload_difficulty}")
+        raise ValueError(f"No models available for workload_difficulty '{workload_difficulty}'")
     
     selected_model = None
     # Prioritize the provider that matches the provider_name argument
@@ -188,6 +192,49 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
         user_prompt=user_prompt
     )
 
+def check_resume(resume: str, job_description: str) -> str:
+    """
+    Analyze a resume against a job description and return a detailed textual comparison.
+
+    This function builds a structured prompt, calls the configured `resume-match-agent`
+    via `call_llm_provider`, and returns the agent's text output. Logging is intentionally
+    concise to avoid recording PII; only short previews of inputs are logged.
+    """
+    try:
+        logger.info("LLM Service: Checking resume against job description...")
+        # Log short previews (first 200 chars) to help debugging without leaking full PII
+        preview_len = 200
+        job_preview = (job_description[:preview_len].replace("\n", " ") + ("..." if len(job_description) > preview_len else "")) if job_description else ""
+        resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
+        logger.debug(f"Job preview: {job_preview}")
+        logger.debug(f"Resume preview: {resume_preview}")
+
+        # Build the user prompt. The agent is expected to return a comprehensive analysis,
+        # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
+        user_prompt = (
+            f"<JobPost>\n{job_description}\n</JobPost>\n\n"
+            f"<Resume>\n{resume}\n</Resume>\n\n"
+            "Please provide a detailed comparison between the job posting and the resume.\n"
+            "Include strengths, gaps, suggested improvements, keyword matches, and recommended bullets to add or modify."
+        )
+
+        # Call the generic provider wrapper
+        analysis = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='resume-match-agent',
+            system_prompt=system_prompts.resume_match_analyzer_agent_system_prompt,
+            user_prompt=user_prompt,
+            custom_settings={"temperature": 0.2, "max_tokens": 12000}
+        )
+
+        logger.info("Received analysis from LLM provider.")
+        return analysis
+
+    except Exception as e:
+        # Do not reference an undefined user_id here; this is a generic LLM service method.
+        logger.exception(f"Error during resume check process. Error: {e}")
+        # Re-raise so callers can handle the failure; caller may want to mark status elsewhere.
+        raise
 
 def parse_resume_to_json(resume_text: str) -> List[dict]:
     logger.info("LLM Service: Parsing resume text to JSON...")

@@ -1,8 +1,10 @@
 import os
 import logging
+from typing import Optional
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.services import llm_service
+from app import system_prompts
 
 load_dotenv()
 
@@ -99,3 +101,49 @@ def run_tailoring_process(application_id: int, user_id: str):
     except Exception as e:
         logger.exception(f"Error during tailoring process for application_id: {application_id}. Error: {e}")
         supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
+
+
+def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None) -> str:
+    """
+    Run a resume vs job-post analysis and return a detailed textual analysis.
+
+    Args:
+        user_id (str): The id of the user whose generic resume may be fetched if resume_text is not provided.
+        job_post (str): The job posting text to analyze against (required).
+        resume_text (str, optional): The resume text to analyze. If omitted, the user's `base_resume_text` will be fetched from Supabase.
+
+    Returns:
+        str: A large text containing the analysis and comparison between the resume and the job post.
+
+    Behavior:
+        - If resume_text is None, fetch the user's generic resume from the `profiles` table.
+        - Use the LLM agent `resume-match-agent` and the system prompt `resume_match_analyzer_agent_system_prompt` from `app.system_prompts`.
+        - Use `llm_service.call_llm_provider` to make the provider call.
+        - Logs status and errors and returns the analysis string on success. Raises on fatal errors.
+    """
+
+    logger.info("Starting resume check process")
+    try:
+        # Step 1: Ensure we have a resume to analyze. If not provided, fetch the user's generic resume.
+        if not resume_text:
+            logger.info("No resume provided — fetching base resume for user from Supabase")
+            profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text").eq("id", user_id).single().execute().data
+            if not profile_data or not profile_data.get('base_resume_text'):
+                logger.error("No base resume found for user; aborting analysis")
+                raise ValueError("No resume available for analysis")
+            resume_text = profile_data['base_resume_text']
+            logger.debug("Fetched base resume from Supabase for user_id: %s", user_id)
+
+        # Step 2: Call the LLM helper in llm_service which wraps call_llm_provider
+        logger.info("Requesting resume vs job-post analysis from LLM service")
+        # Ensure type-checkers know this is a str (we validated above)
+        resume_to_check: str = resume_text  # type: ignore[assignment]
+        assert isinstance(resume_to_check, str)
+        analysis = llm_service.check_resume(resume_to_check, job_post)
+
+        logger.info("Analysis complete — returning results")
+        return analysis
+
+    except Exception as e:
+        logger.exception("Error during resume check process: %s", e)
+        raise

@@ -89,6 +89,7 @@ Draft a one-paragraph professional summary to use on the resume to improve the m
 
 </Instructions>
 """
+
 resume_rewriter_agent_system_prompt = f"""<Role>
 Assume you are a professional resume writer.
 </Role>

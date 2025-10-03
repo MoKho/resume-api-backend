@@ -20,10 +20,31 @@ class ApplicationResponse(BaseModel):
     class Config:
         orm_mode = True # This allows the model to be created from ORM objects
 
+
+# --- Resume Check Schemas ---
+
+class ResumeCheckRequest(BaseModel):
+    """Request body for checking a resume against a job post.
+
+    Fields:
+    - resume_text: full resume as plain text
+    - job_post: the job posting / description to compare against
+    """
+    resume_text: str
+    job_post: str
+
+class ResumeCheckResponse(BaseModel):
+    """Response model for resume check analysis."""
+    analysis: str
+
+
 # --- Profile Setup Schemas ---
 
 class ResumeUpload(BaseModel):
     resume_text: str
+
+
+
 
 class JobHistoryUpdate(BaseModel):
     id: int

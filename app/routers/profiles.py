@@ -5,6 +5,8 @@ from typing import List
 from app.security import get_current_user
 from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse
 from app.services import llm_service
+from app.services.resume_service import run_resume_check_process
+from app.models.schemas import ResumeCheckRequest
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -119,3 +121,25 @@ async def update_job_histories(
                 updated_records.append(result[0])
             
     return updated_records
+
+
+
+@router.post("/check-resume", status_code=200)
+async def check_resume_endpoint(
+    request: ResumeCheckRequest,
+    user=Depends(get_current_user)
+):
+    """
+    Check a resume against a job posting and return a detailed analysis.
+
+    If `resume_text` is omitted from the request body, the endpoint will use the
+    user's stored `base_resume_text` from their profile.
+    """
+    user_id = str(user.id)
+    try:
+        analysis = run_resume_check_process(user_id=user_id, job_post=request.job_post, resume_text=request.resume_text)
+        return {"analysis": analysis}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
