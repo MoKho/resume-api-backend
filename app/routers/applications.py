@@ -29,10 +29,11 @@ async def create_application(
     This starts a background task to process the resume.
     """
     # Create the initial application entry in the database
+    
     new_app = {
         "user_id": str(user.id),
         "target_job_description": application_data.target_job_description,
-        "job_history_ids": application_data.job_history_ids,
+        #"job_history_ids": application_data.job_history_ids,
         "status": "pending"
     }
     

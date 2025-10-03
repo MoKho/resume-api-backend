@@ -136,6 +136,7 @@ You are an AI assistant that extracts job history information from a resume.
     Return the extracted information as a JSON array, where each element in the array is a JSON object representing a job entry.
     Ensure the JSON object is valid and contains only the requested fields with values extracted directly from the resume text.
     Do not include any additional text or formatting outside the JSON object.
+    The name of the company usually appears right after the job title, but separated by a "•", ",", "-" or some other character.
     <Example_input>
     Experience
     Lift truck operator • Sage machines

@@ -16,8 +16,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Data From Colab Notebook ---
-
+# --- Provider and Model Configuration ---
 provider_urls = {
     "groq": "https://api.groq.com/openai/v1",
     "cerebras": "https://api.cerebras.ai/v1",
@@ -160,7 +159,7 @@ def analyze_job_description(job_description: str) -> str:
     logger.info("LLM Service: Analyzing job description...")
     prompt = f"<Job Description>\n{job_description}\n</Job Description>"
     return call_llm_provider(
-        provider_name='gemini',
+        provider_name='groq',
         workload_difficulty='job-description-extractor-agent',
         system_prompt=system_prompts.job_summarizer_agent_system_prompt,
         user_prompt=prompt
@@ -172,7 +171,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     custom_settings = {"reasoning_effort": "high"}
     prompt = f"<Job Description>\n\n"+summarized_job_description+f"\n\n</Job Description>" + f"\n\n<background>\n{job_history_background}\n</background>"
     return call_llm_provider(
-        provider_name='gemini',
+        provider_name='cerebras',
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,
@@ -183,7 +182,7 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
     logger.info("LLM Service: Generating new professional summary...")
     user_prompt = f"<Job Description>\n{summarized_job_description}\n</Job Description>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
-        provider_name='gemini',
+        provider_name='groq',
         workload_difficulty='professional_summary_rewrite_agent',
         system_prompt=system_prompts.professional_summary_rewriter_agent_system_prompt,
         user_prompt=user_prompt

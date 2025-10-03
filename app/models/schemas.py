@@ -6,7 +6,7 @@ from typing import List, Optional
 # Request body for creating a new application
 class ApplicationCreate(BaseModel):
     target_job_description: str
-    job_history_ids: List[int]
+    #job_history_ids: List[int]
 
 # Response model for an application
 class ApplicationResponse(BaseModel):
