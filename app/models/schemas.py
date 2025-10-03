@@ -27,7 +27,9 @@ class ResumeUpload(BaseModel):
 
 class JobHistoryUpdate(BaseModel):
     id: int
-    detailed_background: str
+    # Make both fields optional so the user can update one, the other, or both
+    detailed_background: Optional[str] = None
+    is_default_rewrite: Optional[bool] = None
 
 class JobHistoryResponse(BaseModel):
     id: int
@@ -36,6 +38,16 @@ class JobHistoryResponse(BaseModel):
     job_title: Optional[str] = None
     achievements_list: Optional[List[str]] = None
     detailed_background: Optional[str] = None
+    is_default_rewrite: Optional[bool] = None  
+
+    class Config:
+        orm_mode = True
+
+        
+class ProfileResponse(BaseModel):
+    id: str
+    email: Optional[str] = None
+    has_base_resume: bool = False # A helpful field for the frontend
 
     class Config:
         orm_mode = True

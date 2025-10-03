@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.security import get_current_user
-from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse
+from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse
 from app.services import llm_service
 import os
 from supabase import create_client, Client
@@ -19,6 +19,30 @@ router = APIRouter(
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase: Client = create_client(supabase_url, supabase_service_key)
+
+@router.get("/me", response_model=ProfileResponse)
+async def get_my_profile(user=Depends(get_current_user)):
+    """
+    Retrieves the profile for the currently logged-in user.
+    """
+    user_id = str(user.id)
+    result = supabase.table("profiles").select("id, email, base_resume_text").eq("id", user_id).single().execute().data
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+
+    # Create a helpful boolean for the frontend
+    result['has_base_resume'] = bool(result.get('base_resume_text'))
+    return result
+
+@router.get("/job-histories", response_model=List[JobHistoryResponse])
+async def get_all_job_histories(user=Depends(get_current_user)):
+    """
+    Retrieves a list of all parsed job histories for the logged-in user.
+    """
+    user_id = str(user.id)
+    result = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
+    return result
 
 
 @router.post("/process-resume", response_model=List[JobHistoryResponse])
@@ -69,31 +93,29 @@ async def update_job_histories(
     user=Depends(get_current_user)
 ):
     """
-    User Story 2:
-    Updates the detailed_background for one or more job histories.
+    Updates the detailed_background and/or the is_default_rewrite flag
+    for one or more job histories.
     """
     user_id = str(user.id)
-    
-    # Security Check: Get all valid job history IDs for the current user
     valid_ids_response = supabase.table("job_histories").select("id").eq("user_id", user_id).execute().data
     valid_ids = {item['id'] for item in valid_ids_response}
 
     updated_records = []
     
     for update in updates:
-        # Ensure the user is not trying to update a history that doesn't belong to them
         if update.id not in valid_ids:
-            raise HTTPException(
-                status_code=403, 
-                detail=f"Not authorized to update job history with id {update.id}"
-            )
+            raise HTTPException(status_code=403, detail=f"Not authorized to update job history with id {update.id}")
         
-        # Perform the update
-        result = supabase.table("job_histories").update({
-            "detailed_background": update.detailed_background
-        }).eq("id", update.id).execute().data
-        
-        if result:
-            updated_records.append(result[0])
+        update_payload = {}
+        if update.detailed_background is not None:
+            update_payload['detailed_background'] = update.detailed_background
+        if update.is_default_rewrite is not None:
+            update_payload['is_default_rewrite'] = update.is_default_rewrite
+
+        # Only perform an update if there's something to change
+        if update_payload:
+            result = supabase.table("job_histories").update(update_payload).eq("id", update.id).execute().data
+            if result:
+                updated_records.append(result[0])
             
     return updated_records
