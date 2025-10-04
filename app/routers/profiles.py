@@ -124,7 +124,7 @@ async def update_job_histories(
 
 
 
-@router.post("/check-resume", status_code=200)
+@router.post("/check-resume", status_code=202)
 async def check_resume_endpoint(
     request: ResumeCheckRequest,
     user=Depends(get_current_user)
@@ -137,9 +137,50 @@ async def check_resume_endpoint(
     """
     user_id = str(user.id)
     try:
-        analysis = run_resume_check_process(user_id=user_id, job_post=request.job_post, resume_text=request.resume_text)
-        return {"analysis": analysis}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Enqueue a new job in the resume_checks table. The worker will pick it up.
+        now = __import__('datetime').datetime.utcnow().isoformat()
+        payload = {
+            "user_id": user_id,
+            "job_post": request.job_post,
+            "resume_text": request.resume_text or None,
+            "status": "pending",
+            "analysis": None,
+            "error": None,
+            "created_at": now,
+            "updated_at": now
+        }
+        inserted = supabase.table("resume_checks").insert(payload).execute().data
+        if not inserted or len(inserted) == 0:
+            raise HTTPException(status_code=500, detail="Failed to enqueue resume check job")
+        job_row = inserted[0]
+        return {"job_id": job_row["id"], "status_url": f"/profiles/check-resume/{job_row['id']}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
+@router.get("/check-resume/{job_id}")
+async def get_resume_check_status(job_id: int, user=Depends(get_current_user)):
+    """
+    Retrieve the status and analysis of an enqueued resume check job.
+    """
+    user_id = str(user.id)
+    try:
+        row = supabase.table("resume_checks").select("*").eq("id", job_id).single().execute().data
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if row.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this job")
+
+        return {
+            "job_id": row.get("id"),
+            "status": row.get("status"),
+            "analysis": row.get("analysis"),
+            "error": row.get("error"),
+            "updated_at": row.get("updated_at")
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
