@@ -10,10 +10,13 @@ app = FastAPI(
 
 # This list defines which origins are allowed to communicate with your backend.
 origins = [
+    "https://resume.p-q.app/",
+    # The URL of API itself (good for testing)
+    "https://api.p-q.app",
     "http://localhost",       # For local development
     "http://localhost:3000",  # Default for Next.js dev server
+    "http://localhost:8000",
     "https://aistudio.google.com/apps/drive/1OMMs_Qxb1qI24GqapxALM1nrKwNTgywj", # Google AI Studio
-    "http://localhost:3000",  # For local Next.js development
     "https://2ln1bx7hzfopwqw021gl6ih56sbcopkebkobr14kqimqvyawx7-h813239537.scf.usercontent.goog", # Your AI Studio URL
     "*" # A wildcard to allow any origin for now
     # Add your future frontend production URL here, e.g., "https://www.your-frontend-app.com"
