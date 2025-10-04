@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.security import get_current_user
-from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse
+from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse, ResumeCheckResponse, ResumeTextResponse
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest
@@ -45,6 +45,23 @@ async def get_all_job_histories(user=Depends(get_current_user)):
     user_id = str(user.id)
     result = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
     return result
+
+
+@router.get("/resume-text", response_model=ResumeTextResponse)
+async def get_my_resume_text(user=Depends(get_current_user)):
+    """
+    Return the current user's stored base resume text (if any).
+    """
+    user_id = str(user.id)
+    try:
+        profile = supabase.table("profiles").select("base_resume_text").eq("id", user_id).single().execute().data
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        return {"resume_text": profile.get("base_resume_text")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
 @router.post("/process-resume", response_model=List[JobHistoryResponse])
@@ -124,7 +141,7 @@ async def update_job_histories(
 
 
 
-@router.post("/check-resume", status_code=202)
+@router.post("/check-resume", status_code=202, response_model=ResumeCheckResponse)
 async def check_resume_endpoint(
     request: ResumeCheckRequest,
     user=Depends(get_current_user)

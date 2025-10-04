@@ -30,12 +30,17 @@ class ResumeCheckRequest(BaseModel):
     - resume_text: full resume as plain text
     - job_post: the job posting / description to compare against
     """
-    resume_text: str
+    resume_text: Optional[str] = None
     job_post: str
 
 class ResumeCheckResponse(BaseModel):
     """Response model for resume check analysis."""
     analysis: str
+
+
+class ResumeTextResponse(BaseModel):
+    """Return the stored resume text for a user."""
+    resume_text: Optional[str] = None
 
 
 # --- Profile Setup Schemas ---
