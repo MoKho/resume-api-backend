@@ -1,6 +1,6 @@
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services.resume_service import supabase, run_resume_check_process
 
 logger = logging.getLogger(__name__)
@@ -21,13 +21,13 @@ def process_pending_jobs():
             for job in rows:
                 job_id = job["id"]
                 logger.info("Picking up resume_check job_id=%s", job_id)
-                supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.utcnow().isoformat()}).eq("id", job_id).execute()
+                supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", job_id).execute()
                 try:
                     analysis = run_resume_check_process(user_id=job["user_id"], job_post=job["job_post"], resume_text=job.get("resume_text"))
                     supabase.table("resume_checks").update({
                         "status": "completed",
                         "analysis": analysis,
-                        "updated_at": datetime.utcnow().isoformat()
+                        "updated_at": datetime.now(timezone.utc).isoformat()
                     }).eq("id", job_id).execute()
                     logger.info("Completed resume_check job_id=%s", job_id)
                 except Exception as e:
@@ -35,7 +35,7 @@ def process_pending_jobs():
                     supabase.table("resume_checks").update({
                         "status": "failed",
                         "error": str(e)[:2000],
-                        "updated_at": datetime.utcnow().isoformat()
+                        "updated_at": datetime.now(timezone.utc).isoformat()
                     }).eq("id", job_id).execute()
             time.sleep(POLL_INTERVAL)
         except Exception as e:

@@ -7,6 +7,7 @@ from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryRespons
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest
+from datetime import datetime, timezone
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -151,11 +152,13 @@ async def check_resume_endpoint(
 
     If `resume_text` is omitted from the request body, the endpoint will use the
     user's stored `base_resume_text` from their profile.
+
+    To see the process, go to workers/resume_check_worker.py
     """
     user_id = str(user.id)
     try:
         # Enqueue a new job in the resume_checks table. The worker will pick it up.
-        now = __import__('datetime').datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         payload = {
             "user_id": user_id,
             "job_post": request.job_post,
