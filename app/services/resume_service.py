@@ -5,12 +5,11 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.services import llm_service
 from app import system_prompts
+from app.logging_config import get_logger, bind_logger
 
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # We need to initialize another Supabase client here.
 # IMPORTANT: For backend services, we use the SERVICE_ROLE_KEY
@@ -27,10 +26,11 @@ if not supabase_url or not supabase_service_key:
 supabase: Client = create_client(supabase_url, supabase_service_key)
 
 def run_tailoring_process(application_id: int, user_id: str):
-    logger.info(f"Starting tailoring process for application_id: {application_id}")
+    log = bind_logger(logger, {"agent_name": "tailoring_worker", "user_id": user_id, "application_id": application_id})
+    log.info("Starting tailoring process")
     try:
         # Step 1: Fetch all necessary data from Supabase
-        logger.info("Fetching data from Supabase...")
+        log.info("Fetching data from Supabase...")
         app_data = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
         profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text").eq("id", user_id).single().execute().data
         job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("is_default_rewrite", True).execute().data
@@ -43,7 +43,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         for history in job_histories_to_rewrite:
             # Ensure there is detailed background to work with
             if not history.get('detailed_background'):
-                logger.warning(f"Skipping rewrite for history ID {history['id']} as it has no detailed background.")
+                log.warning("Skipping rewrite as no detailed background", extra={"history_id": history['id']})
                 continue
 
             rewritten_text = llm_service.rewrite_job_history(
@@ -55,7 +55,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         # Step 4: Assemble the intermediate resume with real find-and-replace
         updated_resume = profile_data['base_resume_text']
 
-        logger.info("Replacing job history sections in the resume...")
+        log.info("Replacing job history sections in the resume...")
         for history in job_histories_to_rewrite:
             history_id = history['id']
             # Check if this history was successfully rewritten in the previous step
@@ -66,7 +66,7 @@ def run_tailoring_process(application_id: int, user_id: str):
             # This relies on the parsing LLM splitting achievements by newlines.
             original_achievements = history.get('achievements_list')
             if not original_achievements:
-                logger.warning(f"Skipping replacement for history ID {history_id} as it has no original achievements list.")
+                log.warning("Skipping replacement as no original achievements list", extra={"history_id": history_id})
                 continue
             
             original_achievements_block = "\n".join(original_achievements)
@@ -78,28 +78,29 @@ def run_tailoring_process(application_id: int, user_id: str):
             updated_resume = updated_resume.replace(original_achievements_block, new_rewritten_text, 1)
 
         # Step 5: Generate the new summary
+        log.info("Generating new professional summary...")
         new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
 
         # Step 6: Assemble the final resume with conditional logic
         old_summary = profile_data.get('base_summary_text')
 
         if old_summary:
-            logger.info("Found existing summary. Replacing it.")
+            log.info("Found existing summary. Replacing it.")
             final_resume = updated_resume.replace(old_summary, new_summary)
         else:
-            logger.info("No existing summary found. Prepending new summary.")
+            log.info("No existing summary found. Prepending new summary.")
             final_resume = f"{new_summary}\n\n{updated_resume}"
         
         # Final Step: Update the application in the database
-        logger.info("Updating application in Supabase with final resume...")
+        log.info("Updating application in Supabase with final resume...")
         supabase.table("applications").update({
             "final_resume_text": final_resume,
             "status": "completed"
         }).eq("id", application_id).execute()
-        logger.info(f"Successfully completed tailoring for application_id: {application_id}")
+        log.info("Successfully completed tailoring")
 
     except Exception as e:
-        logger.exception(f"Error during tailoring process for application_id: {application_id}. Error: {e}")
+        log.exception("Error during tailoring process", exc_info=True)
         supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
 
 

@@ -1,10 +1,9 @@
 import time
-import logging
 from datetime import datetime, timezone
 from app.services.resume_service import supabase, run_tailoring_process
+from app.logging_config import get_logger, bind_logger
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logger = get_logger(__name__)
 POLL_INTERVAL = 5  # seconds
 
 
@@ -19,13 +18,14 @@ def process_pending_applications():
             rows = supabase.table("applications").select("*").eq("status", "pending").limit(5).execute().data or []
             for app in rows:
                 app_id = app["id"]
-                logger.info("Picking up application id=%s", app_id)
+                app_logger = bind_logger(logger, {"agent_name": "tailoring_worker", "application_id": app_id, "user_id": app.get("user_id")})
+                app_logger.info("Picking up application")
                 supabase.table("applications").update({"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", app_id).execute()
                 try:
                     run_tailoring_process(application_id=app_id, user_id=app["user_id"])
-                    logger.info("Completed application id=%s", app_id)
+                    app_logger.info("Completed application")
                 except Exception as e:
-                    logger.exception("Application processing failed id=%s: %s", app_id, e)
+                    app_logger.exception("Application processing failed", exc_info=True)
                     supabase.table("applications").update({"status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", app_id).execute()
             time.sleep(POLL_INTERVAL)
         except Exception as e:

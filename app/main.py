@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from app.routers import applications, profiles
 from fastapi.middleware.cors import CORSMiddleware
+from app.logging_config import configure_logging, get_logger, bind_logger
+
+# Configure structured JSON logging early
+configure_logging()
+logger = get_logger(__name__)
 
 app = FastAPI(
     title="Resume Tailor API",
@@ -38,4 +43,6 @@ app.include_router(profiles.router)
 
 @app.get("/")
 def read_root():
+    log = bind_logger(logger, {"agent_name": "http-root", "step": "health_check"})
+    log.info("root endpoint hit")
     return {"message": "Welcome to the Resume Tailor API"}

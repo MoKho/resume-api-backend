@@ -1,10 +1,9 @@
 import time
-import logging
 from datetime import datetime, timezone
 from app.services.resume_service import supabase, run_resume_check_process
+from app.logging_config import get_logger, bind_logger
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logger = get_logger(__name__)
 POLL_INTERVAL = 5  # seconds
 
 
@@ -20,7 +19,8 @@ def process_pending_jobs():
             rows = supabase.table("resume_checks").select("*").eq("status", "pending").limit(5).execute().data or []
             for job in rows:
                 job_id = job["id"]
-                logger.info("Picking up resume_check job_id=%s", job_id)
+                job_logger = bind_logger(logger, {"agent_name": "resume_check_worker", "job_id": job_id, "user_id": job.get("user_id")})
+                job_logger.info("Picking up resume_check job")
                 supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", job_id).execute()
                 try:
                     summarize_flag = job.get("summarize_job_post", True)
@@ -35,9 +35,9 @@ def process_pending_jobs():
                         "analysis": analysis,
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }).eq("id", job_id).execute()
-                    logger.info("Completed resume_check job_id=%s", job_id)
+                    job_logger.info("Completed resume_check job")
                 except Exception as e:
-                    logger.exception("Job failed job_id=%s: %s", job_id, e)
+                    job_logger.exception("Job failed", exc_info=True)
                     supabase.table("resume_checks").update({
                         "status": "failed",
                         "error": str(e)[:2000],

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from app.logging_config import get_logger, bind_logger
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ router = APIRouter(
 supabase_url = os.environ.get("SUPABASE_URL") or ""
 supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY") or ""
 supabase: Client = create_client(supabase_url, supabase_service_key)
+logger = get_logger(__name__)
 
 @router.get("/me", response_model=ProfileResponse)
 async def get_my_profile(user=Depends(get_current_user)):
@@ -30,6 +32,7 @@ async def get_my_profile(user=Depends(get_current_user)):
     Retrieves the profile for the currently logged-in user.
     """
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     result = supabase.table("profiles").select("id, email, base_resume_text").eq("id", user_id).single().execute().data
     
     if not result:
@@ -45,6 +48,7 @@ async def get_all_job_histories(user=Depends(get_current_user)):
     Retrieves a list of all parsed job histories for the logged-in user.
     """
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     result = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
     return result
 
@@ -55,10 +59,13 @@ async def get_my_resume_text(user=Depends(get_current_user)):
     Return the current user's stored base resume text (if any).
     """
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
         profile = supabase.table("profiles").select("base_resume_text").eq("id", user_id).single().execute().data
         if not profile:
+            log.warning("Profile not found when requesting resume_text")
             raise HTTPException(status_code=404, detail="Profile not found")
+        log.info("Returning resume_text")
         return {"resume_text": profile.get("base_resume_text")}
     except HTTPException:
         raise
@@ -72,10 +79,13 @@ async def get_my_summary(user=Depends(get_current_user)):
     Return the current user's stored professional summary (base_summary_text).
     """
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
         profile = supabase.table("profiles").select("base_summary_text").eq("id", user_id).single().execute().data
         if not profile:
+            log.warning("Profile not found when requesting summary")
             raise HTTPException(status_code=404, detail="Profile not found")
+        log.info("Returning professional summary")
         return {"summary": profile.get("base_summary_text")}
     except HTTPException:
         raise
@@ -94,6 +104,7 @@ async def process_resume(
     This action will DELETE all previous job histories for the user.
     """
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
         # First, delete any existing job histories to prevent duplicates
         supabase.table("job_histories").delete().eq("user_id", user_id).execute()
@@ -118,6 +129,7 @@ async def process_resume(
         # Also, update the base_resume_text in the user's profile
         supabase.table("profiles").update({"base_resume_text": resume_data.resume_text}).eq("id", user_id).execute()
 
+        log.info("Inserted parsed job histories", extra={"inserted_count": len(inserted_data) if inserted_data else 0})
         return inserted_data
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -190,10 +202,13 @@ async def check_resume_endpoint(
             "created_at": now,
             "updated_at": now
         }
+        log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
         inserted = supabase.table("resume_checks").insert(payload).execute().data
         if not inserted or len(inserted) == 0:
+            log.error("Failed to enqueue resume check job")
             raise HTTPException(status_code=500, detail="Failed to enqueue resume check job")
         job_row = inserted[0]
+        log.info("Enqueued resume_check job", extra={"job_id": job_row["id"]})
         return {"job_id": job_row["id"], "status_url": f"/profiles/check-resume/{job_row['id']}"}
     except HTTPException:
         raise

@@ -7,14 +7,13 @@ from openai import OpenAI, APIError
 from dotenv import load_dotenv
 from app import system_prompts
 from typing import List
+from app.logging_config import get_logger, bind_logger
 
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # --- Provider and Model Configuration ---
 provider_urls = {
@@ -78,7 +77,7 @@ model_mapping = {
 # --- Core LLM Caller Function ---
 
 def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None):
-    logger.info(f"Calling LLM provider: {provider_name} for workload: {workload_difficulty}")
+    logger.info("Calling LLM provider", extra={"provider": provider_name, "workload": workload_difficulty})
     """
     Calls an OpenAI-compatible LLM provider and returns the results based on workload difficulty.
 
@@ -148,19 +147,19 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 
     try:
         response = client.chat.completions.create(**params)
-        logger.info("API call successful.")
+        logger.info("API call successful", extra={"model": selected_model_name})
         return response.choices[0].message.content
     except APIError as e:
-        logger.error(f"An API error occurred: {e}")
+        logger.exception("An API error occurred during LLM call", exc_info=True, extra={"model": selected_model_name})
         raise
     except Exception as e:
-        logger.error(f"An unexpected error occurred during API call: {e}")
+        logger.exception("An unexpected error occurred during API call", exc_info=True)
         raise
 
 # --- Real LLM Functions  ---
 
 def analyze_job_description(job_description: str) -> str:
-    logger.info("LLM Service: Analyzing job description...")
+    logger.info("LLM Service: Analyzing job description")
     prompt = f"<Job Description>\n{job_description}\n</Job Description>"
     return call_llm_provider(
         provider_name='groq',
@@ -170,7 +169,7 @@ def analyze_job_description(job_description: str) -> str:
     )
 
 def rewrite_job_history(job_history_background: str, summarized_job_description: str) -> str:
-    logger.info("LLM Service: Rewriting job history...")
+    logger.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
     custom_settings = {"reasoning_effort": "high"}
     prompt = f"<Job Description>\n\n"+summarized_job_description+f"\n\n</Job Description>" + f"\n\n<background>\n{job_history_background}\n</background>"
@@ -183,7 +182,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     )
 
 def generate_professional_summary(updated_resume: str, summarized_job_description: str) -> str:
-    logger.info("LLM Service: Generating new professional summary...")
+    logger.info("LLM Service: Generating new professional summary")
     user_prompt = f"<Job Description>\n{summarized_job_description}\n</Job Description>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
         provider_name='groq',
@@ -201,13 +200,13 @@ def check_resume(resume: str, job_description: str) -> str:
     concise to avoid recording PII; only short previews of inputs are logged.
     """
     try:
-        logger.info("LLM Service: Checking resume against job description...")
+        logger.info("LLM Service: Checking resume against job description")
         # Log short previews (first 200 chars) to help debugging without leaking full PII
         preview_len = 200
         job_preview = (job_description[:preview_len].replace("\n", " ") + ("..." if len(job_description) > preview_len else "")) if job_description else ""
         resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
-        logger.debug(f"Job preview: {job_preview}")
-        logger.debug(f"Resume preview: {resume_preview}")
+        logger.debug("Job preview", extra={"preview": job_preview})
+        logger.debug("Resume preview", extra={"preview": resume_preview})
 
         # Build the user prompt. The agent is expected to return a comprehensive analysis,
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
@@ -227,12 +226,12 @@ def check_resume(resume: str, job_description: str) -> str:
             custom_settings={"temperature": 0.2, "max_tokens": 12000}
         )
 
-        logger.info("Received analysis from LLM provider.")
+        logger.info("Received analysis from LLM provider")
         return analysis
 
-    except Exception as e:
+    except Exception:
         # Do not reference an undefined user_id here; this is a generic LLM service method.
-        logger.exception(f"Error during resume check process. Error: {e}")
+        logger.exception("Error during resume check process", exc_info=True)
         # Re-raise so callers can handle the failure; caller may want to mark status elsewhere.
         raise
 
