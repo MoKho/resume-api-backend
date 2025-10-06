@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.security import get_current_user
 from app.models.schemas import ApplicationCreate, ApplicationResponse
 from app.services.resume_service import run_tailoring_process
@@ -21,7 +21,6 @@ supabase: Client = create_client(supabase_url, supabase_service_key)
 @router.post("/", response_model=ApplicationResponse, status_code=202)
 async def create_application(
     application_data: ApplicationCreate,
-    background_tasks: BackgroundTasks,
     user=Depends(get_current_user)
 ):
     """
@@ -41,9 +40,8 @@ async def create_application(
         result = supabase.table("applications").insert(new_app).execute().data
         application_entry = result[0]
 
-        # Add the tailoring process to the background tasks
-        background_tasks.add_task(run_tailoring_process, application_entry['id'], str(user.id))
-
+        # The application is now enqueued (status="pending").
+        # A separate worker process will pick it up and run `run_tailoring_process`.
         return application_entry
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
