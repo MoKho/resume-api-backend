@@ -47,6 +47,11 @@ class ResumeTextResponse(BaseModel):
     resume_text: Optional[str] = None
 
 
+class ResumeSummaryResponse(BaseModel):
+    """Return the stored professional summary for a user."""
+    summary: Optional[str] = None
+
+
 # --- Profile Setup Schemas ---
 
 class ResumeUpload(BaseModel):

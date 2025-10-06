@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.security import get_current_user
 from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse, ResumeCheckResponse, ResumeTextResponse
+from app.models.schemas import ResumeSummaryResponse
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest
@@ -19,8 +20,8 @@ router = APIRouter(
     tags=["profiles"]
 )
 
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY")
+supabase_url = os.environ.get("SUPABASE_URL") or ""
+supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY") or ""
 supabase: Client = create_client(supabase_url, supabase_service_key)
 
 @router.get("/me", response_model=ProfileResponse)
@@ -59,6 +60,23 @@ async def get_my_resume_text(user=Depends(get_current_user)):
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         return {"resume_text": profile.get("base_resume_text")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
+@router.get("/summary", response_model=ResumeSummaryResponse)
+async def get_my_summary(user=Depends(get_current_user)):
+    """
+    Return the current user's stored professional summary (base_summary_text).
+    """
+    user_id = str(user.id)
+    try:
+        profile = supabase.table("profiles").select("base_summary_text").eq("id", user_id).single().execute().data
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        return {"summary": profile.get("base_summary_text")}
     except HTTPException:
         raise
     except Exception as e:
