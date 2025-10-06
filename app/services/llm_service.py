@@ -57,7 +57,7 @@ model_mapping = {
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
 
         #{"provider": "groq", "model": "llama-3.1-8b-instant"},
-        {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
+        #{"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
         {"provider":"sambanova", "model": "gpt-oss-120b"},
 
         #{"provider": "cerebras", "model": "llama3.1-8b"},
@@ -67,8 +67,8 @@ model_mapping = {
     "job-description-extractor-agent": [
         {"provider":"sambanova", "model": "gpt-oss-120b"},
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
-        {"provider": "groq", "model": "llama-3.1-8b-instant"},
-        {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
+       # {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        #{"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ]
@@ -148,12 +148,19 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
     try:
         response = client.chat.completions.create(**params)
         logger.info("API call successful", extra={"model": selected_model_name})
+        #Detecting the </think> tag and returning the content after it
+        think_place = response.choices[0].message.content.find("</think>")
+        if think_place:
+          #logger.info(f'Found </think> in {think_place}. Returning the resule:\n')
+          result = response.choices[0].message.content
+          result = result[think_place+9:]
+          return result
         return response.choices[0].message.content
     except APIError as e:
-        logger.exception("An API error occurred during LLM call", exc_info=True, extra={"model": selected_model_name})
+        logger.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
     except Exception as e:
-        logger.exception("An unexpected error occurred during API call", exc_info=True)
+        logger.exception("An unexpected error occurred during API call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
 
 # --- Real LLM Functions  ---
@@ -174,7 +181,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     custom_settings = {"reasoning_effort": "high"}
     prompt = f"<Job Description>\n\n"+summarized_job_description+f"\n\n</Job Description>" + f"\n\n<background>\n{job_history_background}\n</background>"
     return call_llm_provider(
-        provider_name='cerebras',
+        provider_name='groq',
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,
@@ -239,7 +246,7 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
     logger.info("LLM Service: Parsing resume text to JSON...")
     try:
         response_str = call_llm_provider(
-            provider_name='cerebras',
+            provider_name='groq',
             workload_difficulty='resume-history-jobs-extractor',
             system_prompt=system_prompts.resume_history_company_extractor_agent_system_prompt,
             user_prompt=resume_text
