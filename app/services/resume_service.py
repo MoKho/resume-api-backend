@@ -103,7 +103,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
 
 
-def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None) -> str:
+def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True) -> str:
     """
     Run a resume vs job-post analysis and return a detailed textual analysis.
 
@@ -134,12 +134,21 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
             resume_text = profile_data['base_resume_text']
             logger.debug("Fetched base resume from Supabase for user_id: %s", user_id)
 
-        # Step 2: Call the LLM helper in llm_service which wraps call_llm_provider
+        # Step 2: Optionally summarize / clean the job posting first
+        if summarize_job_post:
+            logger.info("Summarizing job posting before running resume-match analysis")
+            summarized_jd = llm_service.analyze_job_description(job_post)
+            logger.debug("Summarized job description preview: %s", summarized_jd[:200])
+        else:
+            logger.info("Skipping job-post summarization as requested; using provided job_post directly")
+            summarized_jd = job_post
+
         logger.info("Requesting resume vs job-post analysis from LLM service")
         # Ensure type-checkers know this is a str (we validated above)
         resume_to_check: str = resume_text  # type: ignore[assignment]
         assert isinstance(resume_to_check, str)
-        analysis = llm_service.check_resume(resume_to_check, job_post)
+        # Pass the summarized job description into the resume check for a cleaner comparison
+        analysis = llm_service.check_resume(resume_to_check, summarized_jd)
 
         logger.info("Analysis complete — returning results")
         return analysis

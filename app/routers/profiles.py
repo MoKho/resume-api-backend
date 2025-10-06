@@ -154,6 +154,8 @@ async def check_resume_endpoint(
     user's stored `base_resume_text` from their profile.
 
     To see the process, go to workers/resume_check_worker.py
+    
+    Assumes the summarization flag is True unless explicitly set to False.
     """
     user_id = str(user.id)
     try:
@@ -163,6 +165,7 @@ async def check_resume_endpoint(
             "user_id": user_id,
             "job_post": request.job_post,
             "resume_text": request.resume_text or None,
+            "summarize_job_post": request.summarize_job_post if hasattr(request, 'summarize_job_post') else True,
             "status": "pending",
             "analysis": None,
             "error": None,

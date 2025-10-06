@@ -23,7 +23,13 @@ def process_pending_jobs():
                 logger.info("Picking up resume_check job_id=%s", job_id)
                 supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", job_id).execute()
                 try:
-                    analysis = run_resume_check_process(user_id=job["user_id"], job_post=job["job_post"], resume_text=job.get("resume_text"))
+                    summarize_flag = job.get("summarize_job_post", True)
+                    analysis = run_resume_check_process(
+                        user_id=job["user_id"],
+                        job_post=job["job_post"],
+                        resume_text=job.get("resume_text"),
+                        summarize_job_post=summarize_flag
+                    )
                     supabase.table("resume_checks").update({
                         "status": "completed",
                         "analysis": analysis,

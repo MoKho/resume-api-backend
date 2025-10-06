@@ -32,6 +32,10 @@ class ResumeCheckRequest(BaseModel):
     """
     resume_text: Optional[str] = None
     job_post: str
+    # If True (default), the server will run the job-description summarizer
+    # before calling the resume-match agent. Set to False if the job_post is
+    # already a condensed/summarized form to avoid extra LLM calls.
+    summarize_job_post: Optional[bool] = True
 
 class ResumeCheckResponse(BaseModel):
     """Response model for resume check analysis."""
