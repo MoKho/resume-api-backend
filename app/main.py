@@ -18,6 +18,9 @@ origins = [
     "https://resume.p-q.app/",
     # The URL of API itself (good for testing)
     "https://api.p-q.app",
+    #frontend URL
+    "https://resume.p-q.app/",
+    "https://ai-resume-tailor-242175857987.us-west1.run.app"
     "http://localhost",       # For local development
     "http://localhost:3000",  # Default for Next.js dev server
     "http://localhost:8000",

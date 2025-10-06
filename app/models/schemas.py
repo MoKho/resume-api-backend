@@ -86,3 +86,9 @@ class ProfileResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ResumeCheckEnqueueResponse(BaseModel):
+    job_id: int
+    status_url: str
+    status: str

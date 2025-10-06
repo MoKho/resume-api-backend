@@ -7,7 +7,7 @@ from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryRespons
 from app.models.schemas import ResumeSummaryResponse
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
-from app.models.schemas import ResumeCheckRequest
+from app.models.schemas import ResumeCheckRequest, ResumeCheckEnqueueResponse
 from datetime import datetime, timezone
 import os
 from supabase import create_client, Client
@@ -172,48 +172,38 @@ async def update_job_histories(
 
 
 
-@router.post("/check-resume", status_code=202, response_model=ResumeCheckResponse)
-async def check_resume_endpoint(
-    request: ResumeCheckRequest,
-    user=Depends(get_current_user)
-):
-    """
-    Check a resume against a job posting and return a detailed analysis.
-
-    If `resume_text` is omitted from the request body, the endpoint will use the
-    user's stored `base_resume_text` from their profile.
-
-    To see the process, go to workers/resume_check_worker.py
-    
-    Assumes the summarization flag is True unless explicitly set to False.
-    """
+@router.post("/check-resume", status_code=202, response_model=ResumeCheckEnqueueResponse)
+async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_current_user)):
+    """Enqueue a resume check job and return job id + status URL."""
     user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
-        # Enqueue a new job in the resume_checks table. The worker will pick it up.
         now = datetime.now(timezone.utc).isoformat()
         payload = {
             "user_id": user_id,
             "job_post": request.job_post,
             "resume_text": request.resume_text or None,
-            "summarize_job_post": request.summarize_job_post if hasattr(request, 'summarize_job_post') else True,
             "status": "pending",
             "analysis": None,
             "error": None,
+            "summarize_job_post": request.summarize_job_post if getattr(request, "summarize_job_post", None) is not None else True,
             "created_at": now,
             "updated_at": now
         }
-        log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
-        inserted = supabase.table("resume_checks").insert(payload).execute().data
-        if not inserted or len(inserted) == 0:
-            log.error("Failed to enqueue resume check job")
-            raise HTTPException(status_code=500, detail="Failed to enqueue resume check job")
-        job_row = inserted[0]
-        log.info("Enqueued resume_check job", extra={"job_id": job_row["id"]})
-        return {"job_id": job_row["id"], "status_url": f"/profiles/check-resume/{job_row['id']}"}
+        result = supabase.table("resume_checks").insert(payload).execute()
+        err = getattr(result, "error", None)
+        if err:
+            log.error("Failed to enqueue resume check: %s", getattr(err, "message", str(err)))
+            raise HTTPException(status_code=500, detail="Failed to enqueue job")
+        job_row = result.data[0]
+        job_id = job_row["id"]
+        log.info("Enqueued resume_check job", extra={"job_id": job_id})
+        return {"job_id": job_id, "status_url": f"/profiles/check-resume/{job_id}", "status": "pending"}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+    except Exception:
+        log.exception("Error enqueuing resume check")
+        raise HTTPException(status_code=500, detail="Internal error")
 
 
 @router.get("/check-resume/{job_id}")
