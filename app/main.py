@@ -2,9 +2,73 @@ from fastapi import FastAPI
 from app.routers import applications, profiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.logging_config import configure_logging, get_logger, bind_logger
+import os
+import errno
+import pwd
+import grp
 
-# Configure structured JSON logging early
-configure_logging()
+# Configure structured JSON logging early. Attempt to write to a rotating file
+# under /var/log/resume_api and fall back to console-only logging if that
+# directory cannot be created or is not writable by this process.
+LOG_DIR = "/var/log/resume_api"
+LOG_FILE = os.path.join(LOG_DIR, "resume_api.log")
+
+def _ensure_log_dir(path: str) -> bool:
+    """Create log dir, optionally chown to LOG_DIR_OWNER, and verify writability.
+
+    Returns True if the directory exists and is writable by the current process.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+
+        # If an owner is specified, attempt to chown the directory.
+        owner = os.environ.get("LOG_DIR_OWNER")
+        if owner:
+            try:
+                uid = pwd.getpwnam(owner).pw_uid
+                gid = grp.getgrnam(owner).gr_gid
+                os.chown(path, uid, gid)
+            except KeyError:
+                # Specified owner does not exist on this host; skip chown.
+                pass
+
+        # Make the directory readable/executable by others but writable only by owner
+        try:
+            os.chmod(path, 0o755)
+        except Exception:
+            # chmod failures aren't fatal for our purposes
+            pass
+
+        # Verify writability by attempting to open a temp file for append
+        test_file = os.path.join(path, ".writetest")
+        try:
+            with open(test_file, "a") as f:
+                f.write("")
+            try:
+                os.remove(test_file)
+            except Exception:
+                pass
+            return True
+        except PermissionError:
+            return False
+        except OSError:
+            return False
+
+    except PermissionError:
+        return False
+    except OSError as e:
+        if e.errno == errno.EACCES:
+            return False
+        raise
+
+
+# Try to enable file logging. If that fails, configure console-only logging.
+if _ensure_log_dir(LOG_DIR):
+    configure_logging(log_file=LOG_FILE)
+else:
+    # Fallback: still configure logging but without file output
+    configure_logging()
+
 logger = get_logger(__name__)
 
 app = FastAPI(
