@@ -148,13 +148,7 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
     try:
         response = client.chat.completions.create(**params)
         logger.info("API call successful", extra={"model": selected_model_name})
-        #Detecting the </think> tag and returning the content after it
-        think_place = response.choices[0].message.content.find("</think>")
-        if think_place:
-          #logger.info(f'Found </think> in {think_place}. Returning the resule:\n')
-          result = response.choices[0].message.content
-          result = result[think_place+9:]
-          return result
+
         return response.choices[0].message.content
     except APIError as e:
         logger.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
