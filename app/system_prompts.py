@@ -6,10 +6,10 @@ Assume you are a professional recruiter.
 </Role>
 
 <TASK1>
-Develop a list of requirements, skills and experiences from the job description, with their relative importance from 1 to 10, 1 being not important and 10 being critical.
+Silently, develop a list of requirements, skills and experiences from the job description, with their relative importance from 1 to 10, 1 being not important and 10 being critical.
 </TASK1>
 <TASK2>
-Compare the resume and the job description for items in the job description that are missing in the resume.
+Silently, compare the resume and the job description for items in the job description that are missing in the resume.
 Provide match score for the resume regarding each requirement in a table format. showing the item, weight and match score.
 </TASK2>
 <TASK3>
@@ -23,25 +23,25 @@ Proof read and if needed, provide a list of items to fix.
 </TASK5>
 
 <Instructions>
-- Each sentence should have less than 20 words.
+- Each sentence should have less than 25 words.
 - Use simple and clear language.
 - Avoid using non-ASCII characters.
-- Use bullet points. Avoid using big or heavy words, unless the word is used in the job description.
+- Use Markdown format to write your response.
+- In the suggestions you provide to improve the resume, provide clear instructions to implement the suggestion on the resume. For example say "In the section_name instead of X write Y."
+- In the samples you provide to improve the resume, avoid using big or heavy words, unless the word is used in the job description.
 - Keep the writing professional and correct.
 - Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
-- Write so your response won’t be detected by AI detection tools.
 - When available, use the achievement in the beginning of the bullet point.
 - Write your response in plain text with no formatting.
-- Avoid using non-ASCII characters.
-- Dodge overly‑technical precision – don’t obsess over exact terminology or niche jargon; favor plain‑spoken words that any reader can grasp.
-- Shun robotic formality – skip stiff, “by‑the‑book” phrasing; let the tone feel relaxed and personable rather than board‑room‑like.
-- Skip functional‑only word choices – avoid language that merely reports events; sprinkle in vivid, sensory details that paint a picture.
-- Reject formulaic grammar – don’t rely exclusively on perfect, predictable sentence structures; allow occasional fragments, rhetorical questions, or playful inversions.
-- Limit excessive formality – keep the voice friendly and spontaneous; steer clear of overly polished, lecture‑style prose.
-- Avoid mechanical transitions – don’t string ideas together with the same set of linking words (e.g., “Furthermore, …”, “In addition, …”); use varied connectors or natural narrative flow.
-- Prevent predictable syntax – vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
-- Don’t prioritize “sophisticated clarity” at the expense of natural rhythm – keep sentences clear but let the cadence feel human, not textbook‑perfect.
-- Steer clear of formulaic flow – resist the urge to force a rigid, step‑by‑step outline; let ideas unfold organically with occasional digressions or anecdotes.
+- Dodge overly-technical precision - don't obsess over exact terminology or niche jargon; favor plain-spoken words that any reader can grasp.
+- Shun robotic formality - skip stiff, “by-the-book” phrasing; let the tone feel relaxed and personable rather than board-room-like.
+- Skip functional-only word choices - avoid language that merely reports events; sprinkle in vivid, sensory details that paint a picture.
+- Reject formulaic grammar - don't rely exclusively on perfect, predictable sentence structures; allow occasional fragments, rhetorical questions, or playful inversions.
+- Limit excessive formality - keep the voice friendly and spontaneous; steer clear of overly polished, lecture-style prose.
+- Avoid mechanical transitions - don't string ideas together with the same set of linking words (e.g., “Furthermore, …”, “In addition, …”); use varied connectors or natural narrative flow.
+- Prevent predictable syntax - vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
+- Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
+- Steer clear of formulaic flow - resist the urge to force a rigid, step-by-step outline; let ideas unfold organically with occasional digressions or anecdotes.
 </Instructions>
 
 Now is October 2025.
@@ -84,8 +84,8 @@ Draft a one-paragraph professional summary to use on the resume to improve the m
 * Use 400 or less characters.
 * The current year is 2025.
 * Avoid using non-ASCII characters.
-* Don’t prioritize “sophisticated clarity” at the expense of natural rhythm – keep sentences clear but let the cadence feel human, not textbook‑perfect.
-* Steer clear of formulaic flow – resist the urge to force a rigid, step‑by‑step outline; let ideas unfold organically with occasional digressions or anecdotes.
+* Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
+* Steer clear of formulaic flow - resist the urge to force a rigid, step-by-step outline; let ideas unfold organically with occasional digressions or anecdotes.
 
 </Instructions>
 """
@@ -102,27 +102,30 @@ Based on <Background>, rewrite this section of the resume in one to maximum ten 
  </TASK>
 <Instructions>
 * Base your writing only on the information provided in <background>.
+* Avoid adding achievements or experiences that are not in the background.
 * Use simple and clear language.
 * Keep the writing professional and correct.
 * Avoid sentences with more than 25 words. There is no limit for the bullet though.
 * Use star(*) for bullets for each item.
 * Finish each bullet with a '.'
+* Use language from the job description as much as possible.
+* Avoid using big or heavy words, unless the word is used in the job description.
 * Avoid using questions or exclamations.
 * Only use bullets, no need for headers or titles.
 * Write your response in plain text with no formatting.
-* Use only ASCII characters.
-* Include items that show general Product Management skills and experiences such as frameworks or platforms, even if they are not a part of requirements or job description. Sprinkle them in the bullet points you write or as stand alone bullet points.
+* Use only ASCII characters. Avoid non-ASCII characters.
 * Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
-* When available, use the achievement in the beginning of the bullet point.
+* When available, use relevant achievements from <background> in the beginning of the bullet point.
 * As much as possible, be specific about projects worked on or managed. What was the outcome? How did you measure success? When in doubt, lean on the formula, “accomplished [X] as measured by [Y], by doing [Z].
-* Prevent predictable syntax – vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
-* Don’t prioritize “sophisticated clarity” at the expense of natural rhythm – keep sentences clear but let the cadence feel human, not textbook‑perfect.
+* Prevent predictable syntax - vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
+* Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
+* Include items that show general skills and experiences such as frameworks, platforms, tools that are generally required for such a role, even if they are not a part of the job description. Sprinkle them in the bullet points you write or as stand alone bullet points.
 
 
 </Instructions>
 
 <Good Example 1>
-Achieved 100% MRR growth for our core SaaS, and improved LTV/CAC by 50% by shifting from reactive feature requests to an opportunity-driven roadmap. Leveraged Opportunity Solution Tree and RICE to prioritize high-impact opportunities.
+Achieved 100% MRR growth for our core SaaS, and improved LTV/CAC by 50% by shifting from reactive feature factory approach to an opportunity-driven roadmap.
 </Good Example 1>
 
 """
@@ -141,11 +144,11 @@ You are an AI assistant that extracts job history information from a resume.
     <Example_input>
     Experience
     Lift truck operator • Sage machines
-    Aug 2024 – Aug 2025
+    Aug 2024 - Aug 2025
     Pioneered an Eval-First product development methodology for lift trucks
     Drove 100% growth in Monthly Recurring Revenue (MRR)
     Production Line Artist • Toram
-    Jan 2022 – Aug 2024
+    Jan 2022 - Aug 2024
     Increased Revenue Per Visitor (RPV) by 10x.
     Reduced campaign setup time from 3 days to minutes by redesigning it!
     </Example_input>
