@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from app import system_prompts
 from typing import List
 from app.logging_config import get_logger, bind_logger
+from app.utils.text_cleaning import normalize_to_ascii
 
 
 # Load environment variables from .env file
@@ -149,7 +150,15 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
         response = client.chat.completions.create(**params)
         logger.info("API call successful", extra={"model": selected_model_name})
 
-        return response.choices[0].message.content
+        raw_text = response.choices[0].message.content
+        # Sanitize to ASCII and log any replacements
+        found, cleaned_text, replacements = normalize_to_ascii(raw_text)
+        if found:
+            logger.info("Non-ASCII characters found and sanitized", extra={
+                "model": selected_model_name,
+                "replacements": replacements
+            })
+        return cleaned_text
     except APIError as e:
         logger.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
