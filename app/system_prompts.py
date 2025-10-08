@@ -19,7 +19,7 @@ Based on the scores and weights on TASK2 you did, provide an overall weighted ma
 Provide suggestions to improve the match between resume and the job description. This should include clear instructions to implement the suggestion on the resume.
 </TASK4>
 <TASK5>
-Proof read and if needed, provide a list of items to fix.
+Proof read. If everything is all right, simply state you have done the proof read and everythign is all righ. Otherwise, provide a list of items to fix and the way to fix them.
 </TASK5>
 
 <Instructions>
