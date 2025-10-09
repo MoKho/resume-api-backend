@@ -123,37 +123,39 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
         - Logs status and errors and returns the analysis string on success. Raises on fatal errors.
     """
 
-    logger.info("Starting resume check process")
+    # Bind a logger adapter for this operation so logs include user context
+    log = bind_logger(logger, {"agent_name": "resume_check_process", "user_id": user_id})
+    log.info("Starting resume check process")
     try:
         # Step 1: Ensure we have a resume to analyze. If not provided, fetch the user's generic resume.
         if not resume_text:
-            logger.info("No resume provided — fetching base resume for user from Supabase")
+            log.info("No resume provided — fetching base resume for user from Supabase")
             profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text").eq("id", user_id).single().execute().data
             if not profile_data or not profile_data.get('base_resume_text'):
-                logger.error("No base resume found for user; aborting analysis")
+                log.error("No base resume found for user; aborting analysis")
                 raise ValueError("No resume available for analysis")
             resume_text = profile_data['base_resume_text']
-            logger.debug("Fetched base resume from Supabase for user_id: %s", user_id)
+            log.debug("Fetched base resume from Supabase for user_id: %s", user_id)
 
         # Step 2: Optionally summarize / clean the job posting first
         if summarize_job_post:
-            logger.info("Summarizing job posting before running resume-match analysis")
+            log.info("Summarizing job posting before running resume-match analysis")
             summarized_jd = llm_service.analyze_job_description(job_post)
-            logger.debug("Summarized job description preview: %s", summarized_jd[:200])
+            log.debug("Summarized job description preview: %s", summarized_jd[:200])
         else:
-            logger.info("Skipping job-post summarization as requested; using provided job_post directly")
+            log.info("Skipping job-post summarization as requested; using provided job_post directly")
             summarized_jd = job_post
 
-        logger.info("Requesting resume vs job-post analysis from LLM service")
+        log.info("Requesting resume vs job-post analysis from LLM service")
         # Ensure type-checkers know this is a str (we validated above)
         resume_to_check: str = resume_text  # type: ignore[assignment]
         assert isinstance(resume_to_check, str)
         # Pass the summarized job description into the resume check for a cleaner comparison
         analysis = llm_service.check_resume(resume_to_check, summarized_jd)
 
-        logger.info("Analysis complete — returning results")
+        log.info("Analysis complete — returning results")
         return analysis
 
     except Exception as e:
-        logger.exception("Error during resume check process: %s", e)
+        log.exception("Error during resume check process: %s", e)
         raise

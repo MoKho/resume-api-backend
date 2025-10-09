@@ -15,6 +15,8 @@ from app.utils.text_cleaning import normalize_to_ascii
 load_dotenv()
 
 logger = get_logger(__name__)
+# Bind a module-level LoggerAdapter so logs from this module include the agent name
+log = bind_logger(logger, {"agent_name": "llm_service"})
 
 # --- Provider and Model Configuration ---
 provider_urls = {
@@ -78,7 +80,7 @@ model_mapping = {
 # --- Core LLM Caller Function ---
 
 def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None):
-    logger.info("Calling LLM provider", extra={"provider": provider_name, "workload": workload_difficulty})
+    log.info("Calling LLM provider", extra={"provider": provider_name, "workload": workload_difficulty})
     """
     Calls an OpenAI-compatible LLM provider and returns the results based on workload difficulty.
 
@@ -94,19 +96,19 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
     """
 
     if provider_name.lower() not in provider_urls:
-        logger.error(f"Unknown provider: {provider_name}")
+        log.error(f"Unknown provider: {provider_name}")
         raise ValueError(f"Error: Unknown provider '{provider_name}'.")
 
     # Add check for workload difficulty existence
     if workload_difficulty not in model_mapping:
-        logger.error(f"Unsupported workload difficulty: {workload_difficulty}")
+        log.error(f"Unsupported workload difficulty: {workload_difficulty}")
         raise ValueError(f"Error: Unsupported workload difficulty '{workload_difficulty}'.")
 
     # Retrieve the list of provider-model pairs for the given workload_difficulty
     available_models = model_mapping.get(workload_difficulty)
     # Sanity check for static type-checkers: ensure we actually got a list
     if not available_models:
-        logger.error(f"No models configured for workload_difficulty: {workload_difficulty}")
+        log.error(f"No models configured for workload_difficulty: {workload_difficulty}")
         raise ValueError(f"No models available for workload_difficulty '{workload_difficulty}'")
     
     selected_model = None
@@ -115,17 +117,17 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 
     if selected_model is None:
         selected_model = available_models[0]
-        logger.warning(f"No model found for provider '{provider_name}'. Using first available: {selected_model}")
+        log.warning(f"No model found for provider '{provider_name}'. Using first available: {selected_model}")
 
     # If no matching provider is found, select the first available provider and model
     selected_model_name = selected_model["model"]
     selected_provider_name_for_url = selected_model["provider"]
-    logger.info(f"Selected model: {selected_model_name} from provider: {selected_provider_name_for_url}")
+    log.info(f"Selected model: {selected_model_name} from provider: {selected_provider_name_for_url}")
 
     base_url = provider_urls[selected_provider_name_for_url.lower()]
     api_key = os.environ.get(f"{selected_provider_name_for_url.upper()}_API_KEY")
     if not api_key:
-        logger.error(f"API key for {selected_provider_name_for_url.upper()} not found in environment variables.")
+        log.error(f"API key for {selected_provider_name_for_url.upper()} not found in environment variables.")
         raise ValueError(f"Error: API key for {selected_provider_name_for_url.upper()} not found.")
 
     client = OpenAI(base_url=base_url, api_key=api_key)
@@ -148,28 +150,28 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 
     try:
         response = client.chat.completions.create(**params)
-        logger.info("API call successful", extra={"model": selected_model_name})
+        log.info("API call successful", extra={"model": selected_model_name})
 
         raw_text = response.choices[0].message.content
         # Sanitize to ASCII and log any replacements
         found, cleaned_text, replacements = normalize_to_ascii(raw_text)
         if found:
-            logger.info("Non-ASCII characters found and sanitized", extra={
+            log.info("Non-ASCII characters found and sanitized", extra={
                 "model": selected_model_name,
                 "replacements": replacements
             })
         return cleaned_text
     except APIError as e:
-        logger.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
+        log.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
     except Exception as e:
-        logger.exception("An unexpected error occurred during API call in call_llm", exc_info=True, extra={"model": selected_model_name})
+        log.exception("An unexpected error occurred during API call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
 
 # --- Real LLM Functions  ---
 
 def analyze_job_description(job_description: str) -> str:
-    logger.info("LLM Service: Analyzing job description")
+    log.info("LLM Service: Analyzing job description")
     prompt = f"<Job Description>\n{job_description}\n</Job Description>"
     return call_llm_provider(
         provider_name='groq',
@@ -179,7 +181,7 @@ def analyze_job_description(job_description: str) -> str:
     )
 
 def rewrite_job_history(job_history_background: str, summarized_job_description: str) -> str:
-    logger.info("LLM Service: Rewriting job history")
+    log.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
     custom_settings = {"reasoning_effort": "high"}
     prompt = f"<Job Description>\n\n"+summarized_job_description+f"\n\n</Job Description>" + f"\n\n<background>\n{job_history_background}\n</background>"
@@ -192,7 +194,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     )
 
 def generate_professional_summary(updated_resume: str, summarized_job_description: str) -> str:
-    logger.info("LLM Service: Generating new professional summary")
+    log.info("LLM Service: Generating new professional summary")
     user_prompt = f"<Job Description>\n{summarized_job_description}\n</Job Description>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
         provider_name='groq',
@@ -210,13 +212,13 @@ def check_resume(resume: str, job_description: str) -> str:
     concise to avoid recording PII; only short previews of inputs are logged.
     """
     try:
-        logger.info("LLM Service: Checking resume against job description")
+        log.info("LLM Service: Checking resume against job description")
         # Log short previews (first 200 chars) to help debugging without leaking full PII
         preview_len = 200
         job_preview = (job_description[:preview_len].replace("\n", " ") + ("..." if len(job_description) > preview_len else "")) if job_description else ""
         resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
-        logger.debug("Job preview", extra={"preview": job_preview})
-        logger.debug("Resume preview", extra={"preview": resume_preview})
+        log.debug("Job preview", extra={"preview": job_preview})
+        log.debug("Resume preview", extra={"preview": resume_preview})
 
         # Build the user prompt. The agent is expected to return a comprehensive analysis,
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
@@ -236,17 +238,17 @@ def check_resume(resume: str, job_description: str) -> str:
             custom_settings={"temperature": 0.2, "max_tokens": 12000}
         )
 
-        logger.info("Received analysis from LLM provider")
+        log.info("Received analysis from LLM provider")
         return analysis
 
     except Exception:
         # Do not reference an undefined user_id here; this is a generic LLM service method.
-        logger.exception("Error during resume check process", exc_info=True)
+        log.exception("Error during resume check process", exc_info=True)
         # Re-raise so callers can handle the failure; caller may want to mark status elsewhere.
         raise
 
 def parse_resume_to_json(resume_text: str) -> List[dict]:
-    logger.info("LLM Service: Parsing resume text to JSON...")
+    log.info("LLM Service: Parsing resume text to JSON...")
     try:
         response_str = call_llm_provider(
             provider_name='groq',
@@ -257,8 +259,8 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
         # The LLM returns a string, we need to parse it into a Python list
         return json.loads(response_str)
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to decode LLM response into JSON: {e}")
+        log.error(f"Failed to decode LLM response into JSON: {e}")
         raise ValueError("The AI failed to return valid JSON. Please try again.")
     except Exception as e:
-        logger.error(f"An error occurred during resume parsing: {e}")
+        log.error(f"An error occurred during resume parsing: {e}")
         raise
