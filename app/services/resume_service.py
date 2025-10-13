@@ -1,6 +1,8 @@
 import os
 import logging
-from typing import Optional
+import json
+from typing import Optional, List, Dict
+from datetime import datetime, timezone
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.services import llm_service
@@ -127,6 +129,17 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
     log = bind_logger(logger, {"agent_name": "resume_check_process", "user_id": user_id})
     log.info("Starting resume check process")
     try:
+        # Attempt to find the corresponding resume_checks row so we can persist qualifications
+        try:
+            # Keep the query simple and avoid provider-specific order parameters
+            job_rows = supabase.table("resume_checks").select("*").eq("user_id", user_id).eq("job_post", job_post).limit(1).execute().data
+            job_row = (job_rows[0] if job_rows else None)
+            job_id = job_row.get("id") if job_row else None
+        except Exception:
+            # Fallback: don't fail the whole job if we can't read the row
+            job_row = None
+            job_id = None
+
         # Step 1: Ensure we have a resume to analyze. If not provided, fetch the user's generic resume.
         if not resume_text:
             log.info("No resume provided — fetching base resume for user from Supabase")
@@ -137,21 +150,43 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
             resume_text = profile_data['base_resume_text']
             log.debug("Fetched base resume from Supabase for user_id: %s", user_id)
 
-        # Step 2: Optionally summarize / clean the job posting first
-        if summarize_job_post:
-            log.info("Summarizing job posting before running resume-match analysis")
-            summarized_jd = llm_service.analyze_job_description(job_post)
-            log.debug("Summarized job description preview: %s", summarized_jd[:200])
+        # Step 2: Determine or extract the qualifications list
+        qualifications: List[Dict] = []
+        # First, if the frontend already provided qualifications inside the job_post payload
+        # (note: earlier API layer will populate qualifications on the queue row), we should
+        # prefer those. However, this function's signature doesn't receive qualifications
+        # directly, so we will attempt to read them from the job_row if present.
+        if job_row and job_row.get("qualifications"):
+            qualifications = job_row.get("qualifications") or []
+            log.info("Using qualifications found on resume_checks row", extra={"count": len(qualifications)})
         else:
-            log.info("Skipping job-post summarization as requested; using provided job_post directly")
-            summarized_jd = job_post
+            # If no qualifications persisted yet, derive them. If summarize_job_post is True,
+            # summarize first and then extract qualifications. If False, extract directly from job_post.
+            if summarize_job_post:
+                log.info("Summarizing job posting before extracting qualifications")
+                summarized_jd = llm_service.analyze_job_description(job_post)
+                log.debug("Summarized job description preview: %s", summarized_jd[:200])
+                qualifications = llm_service.extract_job_qualifications(summarized_jd)
+            else:
+                log.info("Extracting qualifications directly from provided job post")
+                qualifications = llm_service.extract_job_qualifications(job_post)
 
-        log.info("Requesting resume vs job-post analysis from LLM service")
+        # Persist qualifications to the resume_checks row if we found a job_id
+        now = datetime.now(timezone.utc).isoformat()
+        if job_id and qualifications is not None:
+            try:
+                supabase.table("resume_checks").update({"qualifications": qualifications, "updated_at": now}).eq("id", job_id).execute()
+                log.info("Saved qualifications to resume_checks row", extra={"job_id": job_id, "qual_count": len(qualifications)})
+            except Exception:
+                log.exception("Failed to save qualifications to resume_checks row; continuing without persisting")
+
+        log.info("Requesting resume vs qualifications analysis from LLM service")
         # Ensure type-checkers know this is a str (we validated above)
         resume_to_check: str = resume_text  # type: ignore[assignment]
         assert isinstance(resume_to_check, str)
-        # Pass the summarized job description into the resume check for a cleaner comparison
-        analysis = llm_service.check_resume(resume_to_check, summarized_jd)
+        # Convert qualifications into a JSON string that the resume-match agent expects
+        qualifications_json = json.dumps(qualifications)
+        analysis = llm_service.check_resume(resume_to_check, qualifications_json)
 
         log.info("Analysis complete — returning results")
         return analysis

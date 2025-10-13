@@ -75,6 +75,12 @@ model_mapping = {
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ]
+
+    ,"job-qualifications-extractor-agent": [
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
+        {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ]
 }
 
 # --- Core LLM Caller Function ---
@@ -223,10 +229,11 @@ def check_resume(resume: str, job_description: str) -> str:
         # Build the user prompt. The agent is expected to return a comprehensive analysis,
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
         user_prompt = (
-            f"<JobPost>\n{job_description}\n</JobPost>\n\n"
             f"<Resume>\n{resume}\n</Resume>\n\n"
-            "Please provide a detailed comparison between the job posting and the resume.\n"
-            "Include strengths, gaps, suggested improvements, keyword matches, and recommended bullets to add or modify."
+            "Please provide a detailed comparison between the provided qualifications list and the resume.\n"
+            "Include strengths, gaps, suggested improvements, keyword matches, and recommended bullets to add or modify.\n"
+            "Qualifications are a JSON array of objects with keys 'qualification' and 'weight'.\n"
+            f"Qualifications:\n{job_description}\n"
         )
 
         # Call the generic provider wrapper
@@ -263,4 +270,39 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
         raise ValueError("The AI failed to return valid JSON. Please try again.")
     except Exception as e:
         log.error(f"An error occurred during resume parsing: {e}")
+        raise
+
+
+def extract_job_qualifications(summarized_job_description: str) -> List[dict]:
+    """
+    Extract a list of qualifications (with integer weights) from a summarized job description.
+    Returns a list of dicts: {"qualification": str, "weight": int}
+    """
+    log.info("LLM Service: Extracting job qualifications from summarized job description")
+    try:
+        response_str = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='job-qualifications-extractor-agent',
+            system_prompt=system_prompts.job_qualifications_extractor_agent_system_prompt,
+            user_prompt=f'<JobDescription>\n{summarized_job_description}\n</JobDescription>',
+            custom_settings={"temperature": 0.0}
+        )
+        quals = json.loads(response_str)
+        # Ensure weights are integers and filter malformed entries
+        cleaned = []
+        for q in quals:
+            qual_text = q.get('qualification') or q.get('name') or q.get('skill')
+            weight = q.get('weight')
+            try:
+                weight_int = int(weight)
+            except Exception:
+                # skip entries with invalid weight
+                continue
+            cleaned.append({"qualification": qual_text, "weight": weight_int})
+        return cleaned
+    except json.JSONDecodeError as e:
+        log.error(f"Failed to decode qualifications JSON: {e}")
+        raise ValueError("The qualifications extractor failed to return valid JSON.")
+    except Exception as e:
+        log.error(f"An error occurred during qualifications extraction: {e}")
         raise

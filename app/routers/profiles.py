@@ -183,6 +183,11 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
             "user_id": user_id,
             "job_post": request.job_post,
             "resume_text": request.resume_text or None,
+            # Allow the frontend to supply a pre-extracted qualifications list to
+            # skip summarization/extraction. This should be a list of objects
+            # {"qualification": str, "weight": int} and will be stored in the
+            # resume_checks.qualifications JSONB column.
+            "qualifications": request.qualifications if getattr(request, "qualifications", None) is not None else None,
             "status": "pending",
             "analysis": None,
             "error": None,
@@ -224,6 +229,7 @@ async def get_resume_check_status(job_id: int, user=Depends(get_current_user)):
             "status": row.get("status"),
             "analysis": row.get("analysis"),
             "error": row.get("error"),
+            "qualifications": row.get("qualifications"),
             "updated_at": row.get("updated_at")
         }
     except HTTPException:
