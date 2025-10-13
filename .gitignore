@@ -19,3 +19,6 @@ migrations/
 
 *.sh
 gitclean.sh
+# Logs
+*.log
+app-local.log

@@ -7,9 +7,10 @@ from openai import OpenAI, APIError
 from dotenv import load_dotenv
 from app import system_prompts
 from typing import List
-from app.logging_config import get_logger, bind_logger
+from app.logging_config import get_logger, bind_logger, configure_logging
 from app.utils.text_cleaning import normalize_to_ascii
 
+configure_logging()
 
 # Load environment variables from .env file
 load_dotenv()
@@ -230,9 +231,6 @@ def check_resume(resume: str, job_description: str) -> str:
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
         user_prompt = (
             f"<Resume>\n{resume}\n</Resume>\n\n"
-            "Please provide a detailed comparison between the provided qualifications list and the resume.\n"
-            "Include strengths, gaps, suggested improvements, keyword matches, and recommended bullets to add or modify.\n"
-            "Qualifications are a JSON array of objects with keys 'qualification' and 'weight'.\n"
             f"Qualifications:\n{job_description}\n"
         )
 

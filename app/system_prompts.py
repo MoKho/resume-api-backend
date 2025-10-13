@@ -6,7 +6,7 @@ Assume you are a professional recruiter.
 </Role>
 
 <TASK1>
-Silently, compare the resume and the list of qualifications for items in the qualifications that are missing in the resume.
+Compare the resume and the list of <qualifications> for items in the <qualifications> that are missing in the resume.
 Provide match score for the resume regarding each requirement in a csv format. showing the item, weight and match score.
 </TASK1>
 <TASK2>

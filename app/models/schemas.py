@@ -36,9 +36,9 @@ class ResumeCheckRequest(BaseModel):
     # before calling the resume-match agent. Set to False if the job_post is
     # already a condensed/summarized form to avoid extra LLM calls.
     summarize_job_post: Optional[bool] = True
-    # Optional pre-extracted qualifications list. Each qualification includes
-    # the qualification text and an integer weight (importance 1-10).
-    qualifications: Optional[List[dict]] = None
+    # Optional pre-extracted qualifications text. Provide as a raw string
+    # (e.g., a JSON-like array or any structured text). LLMs can parse it.
+    qualifications: Optional[str] = None
 
 class ResumeCheckResponse(BaseModel):
     """Response model for resume check analysis."""
