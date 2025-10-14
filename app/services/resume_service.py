@@ -108,7 +108,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
 
 
-def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> str:
+def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> tuple[str, str]:
     """
     Run a resume vs job-post analysis and return a detailed textual analysis.
 
@@ -191,10 +191,11 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
         resume_to_check: str = resume_text  # type: ignore[assignment]
         assert isinstance(resume_to_check, str)
         # Pass the qualifications text directly to the LLM for scoring (LLMs can parse strings)
-        analysis = llm_service.check_resume(resume_to_check, qualifications_text or "")
+        score = llm_service.score_resume(resume_to_check, qualifications_text or "")
+        analysis = llm_service.check_resume(resume_to_check, job_post or "")
 
         log.info("Analysis complete — returning results")
-        return analysis
+        return (score, analysis)
 
     except Exception as e:
         log.exception("Error during resume check process: %s", e)

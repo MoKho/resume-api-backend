@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
+from logging.handlers import RotatingFileHandler
+
 
 
 
@@ -69,11 +71,22 @@ class JsonFormatter(logging.Formatter):
 def configure_logging(level: int = logging.INFO, log_file: str | None = None) -> None:
     """Configure the root logger to use JSON formatter. Logs to terminal and file in local/dev."""
     root = logging.getLogger()
+    env = os.environ.get("ENV", "production").lower()
     # Avoid adding multiple handlers during module reloads
     if any(isinstance(h.formatter, JsonFormatter) for h in root.handlers if h.formatter):
+        # Even if handlers exist, still ensure levels are set correctly
+        root.setLevel(level)
+        for h in root.handlers:
+            h.setLevel(level)
+        # Enable httpx/httpcore DEBUG only if not in local/dev
+        if env not in ("local", "development", "dev"):
+            logging.getLogger("httpx").setLevel(logging.DEBUG)
+            logging.getLogger("httpcore").setLevel(logging.DEBUG)
+        else:
+            # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
+            logging.getLogger("httpx").setLevel(logging.INFO)
+            logging.getLogger("httpcore").setLevel(logging.INFO)
         return
-
-    env = os.environ.get("ENV", "production").lower()
     handlers = []
 
     if env in ("local", "development", "dev"):
@@ -84,7 +97,6 @@ def configure_logging(level: int = logging.INFO, log_file: str | None = None) ->
 
         # Default log file path
         log_file_path = log_file or os.path.join(os.path.dirname(__file__), "app-local.log")
-        from logging.handlers import RotatingFileHandler
         file_handler = RotatingFileHandler(log_file_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
         file_handler.setFormatter(JsonFormatter())
         handlers.append(file_handler)
@@ -94,13 +106,25 @@ def configure_logging(level: int = logging.INFO, log_file: str | None = None) ->
         stream_handler.setFormatter(JsonFormatter())
         handlers.append(stream_handler)
         if log_file:
-            from logging.handlers import RotatingFileHandler
             file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
             file_handler.setFormatter(JsonFormatter())
             handlers.append(file_handler)
 
     root.handlers = handlers
     root.setLevel(level)
+
+    # Ensure handlers don't filter out records below the level
+    for h in root.handlers:
+        h.setLevel(level)
+
+    # Apply verbose logging for httpx/httpcore only if not in local/dev
+    if env not in ("local", "development", "dev"):
+        logging.getLogger("httpx").setLevel(logging.DEBUG)
+        logging.getLogger("httpcore").setLevel(logging.DEBUG)
+    else:
+        # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
+        logging.getLogger("httpx").setLevel(logging.INFO)
+        logging.getLogger("httpcore").setLevel(logging.INFO)
 
 
 def get_logger(name: str) -> logging.Logger:

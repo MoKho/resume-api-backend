@@ -6,7 +6,7 @@ from app.logging_config import get_logger, bind_logger, configure_logging
 
 configure_logging()
 logger = get_logger(__name__)
-POLL_INTERVAL = 5  # seconds
+POLL_INTERVAL = 10  # seconds
 
 
 def process_pending_jobs():
@@ -16,26 +16,29 @@ def process_pending_jobs():
     a real queue (Redis + RQ, Celery, or a managed queue service) to get retries
     and better concurrency control.
     """
+    job_logger = bind_logger(logger, {"agent_name": "resume_check_worker"})
+
     while True:
         try:
             rows = supabase.table("resume_checks").select("*").eq("status", "pending").limit(5).execute().data or []
             for job in rows:
                 job_id = job["id"]
-                job_logger = bind_logger(logger, {"agent_name": "resume_check_worker", "job_id": job_id, "user_id": job.get("user_id")})
-                job_logger.info("Picking up resume_check job")
+                job_logger.info(f'Picking up resume_check job: job_id={job_id}, user_id={job.get("user_id")}')
                 supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()}).eq("id", job_id).execute()
                 try:
                     summarize_flag = job.get("summarize_job_post", True)
-                    analysis = run_resume_check_process(
+                    result = run_resume_check_process(
                         user_id=job["user_id"],
                         job_post=job["job_post"],
                         resume_text=job.get("resume_text"),
                         summarize_job_post=summarize_flag,
                         qualifications=job.get("qualifications")
                     )
+                    score, analysis = result
+                    temporary_result = score+"\n---Analysis---\n"+analysis
                     supabase.table("resume_checks").update({
                         "status": "completed",
-                        "analysis": analysis,
+                        "analysis": temporary_result,
                         "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
                     }).eq("id", job_id).execute()
                     job_logger.info("Completed resume_check job")

@@ -218,7 +218,51 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
         user_prompt=user_prompt
     )
 
-def check_resume(resume: str, job_description: str) -> str:
+def score_resume(resume: str, qualifications: str) -> str:
+    """
+    Analyze a resume against a list of qualifications and return a csv textual comparison.
+
+    This function builds a structured prompt, calls the configured `resume-match-agent`
+    via `call_llm_provider`, and returns the agent's text output. Logging is intentionally
+    concise to avoid recording PII; only short previews of inputs are logged.
+    """
+    log = bind_logger(logger, {"agent_name": "score_resume"})
+
+    try:
+        log.info("LLM Service: Checking resume against qualifications")
+        # Log short previews (first 200 chars) to help debugging without leaking full PII
+        preview_len = 100
+        qualifications_preview = (qualifications[:preview_len].replace("\n", " ") + ("..." if len(qualifications) > preview_len else "")) if qualifications else ""
+        resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
+        log.debug("Qualifications preview", extra={"preview": qualifications_preview})
+        log.debug("Resume preview", extra={"preview": resume_preview})
+
+        # Build the user prompt. The agent is expected to return a comprehensive analysis,
+        # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
+        user_prompt = (
+            f"<Resume>\n{resume}\n</Resume>\n\n"
+            f"<Qualifications>\n{qualifications}\n</Qualifications>"
+        )
+
+        # Call the generic provider wrapper
+        score = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='resume-match-agent',
+            system_prompt=system_prompts.resume_score_agent_system_prompt,
+            user_prompt=user_prompt,
+            custom_settings={"temperature": 0.2, "max_tokens": 12000}
+        )
+
+        log.info("Received the score from LLM provider")
+        return score
+
+    except Exception:
+        # Do not reference an undefined user_id here; this is a generic LLM service method.
+        log.exception("Error during resume check process", exc_info=True)
+        # Re-raise so callers can handle the failure; caller may want to mark status elsewhere.
+        raise
+
+def check_resume(resume: str, job_post: str) -> str:
     """
     Analyze a resume against a job description and return a detailed textual comparison.
 
@@ -231,17 +275,17 @@ def check_resume(resume: str, job_description: str) -> str:
     try:
         log.info("LLM Service: Checking resume against job description")
         # Log short previews (first 200 chars) to help debugging without leaking full PII
-        preview_len = 100
-        job_preview = (job_description[:preview_len].replace("\n", " ") + ("..." if len(job_description) > preview_len else "")) if job_description else ""
-        resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
-        log.debug("Job preview", extra={"preview": job_preview})
-        log.debug("Resume preview", extra={"preview": resume_preview})
+        #preview_len = 100
+        #job_preview = (job_post[:preview_len].replace("\n", " ") + ("..." if len(job_post) > preview_len else "")) if job_post else ""
+        #resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
+        #log.debug("Job preview", extra={"preview": job_preview})
+        #log.debug("Resume preview", extra={"preview": resume_preview})
 
         # Build the user prompt. The agent is expected to return a comprehensive analysis,
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
         user_prompt = (
             f"<Resume>\n{resume}\n</Resume>\n\n"
-            f"<Qualifications>\n{job_description}\n</Qualifications>"
+            f"<Jobpost>\n{job_post}\n</Jobpost>"
         )
 
         # Call the generic provider wrapper
