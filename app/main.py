@@ -6,6 +6,7 @@ import os
 import errno
 import pwd
 import grp
+configure_logging()
 
 # Configure structured JSON logging early. Attempt to write to a rotating file
 # under /var/log/resume_api and fall back to console-only logging if that

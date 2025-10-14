@@ -1,5 +1,6 @@
 # app/routers/profiles.py
 
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.security import get_current_user
@@ -12,7 +13,9 @@ from datetime import datetime, timezone
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from app.logging_config import get_logger, bind_logger
+from app.logging_config import get_logger, bind_logger, configure_logging
+
+configure_logging()
 
 load_dotenv()
 
@@ -178,7 +181,10 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
     user_id = str(user.id)
     log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        if request.job_post is None or request.job_post.strip() == "":
+            if request.qualifications is None or request.qualifications.strip() == "":
+                raise HTTPException(status_code=400, detail="Either job_post or qualifications must be provided and non-empty.")
         payload = {
             "user_id": user_id,
             "job_post": request.job_post,

@@ -31,7 +31,7 @@ class ResumeCheckRequest(BaseModel):
     - job_post: the job posting / description to compare against
     """
     resume_text: Optional[str] = None
-    job_post: str
+    job_post: Optional[str] = None
     # If True (default), the server will run the job-description summarizer
     # before calling the resume-match agent. Set to False if the job_post is
     # already a condensed/summarized form to avoid extra LLM calls.

@@ -3,6 +3,7 @@ import logging
 import json
 from typing import Optional
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.services import llm_service
@@ -136,7 +137,8 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
             job_rows = supabase.table("resume_checks").select("*").eq("user_id", user_id).eq("job_post", job_post).limit(1).execute().data
             job_row = (job_rows[0] if job_rows else None)
             job_id = job_row.get("id") if job_row else None
-        except Exception:
+        except Exception as e:
+            log.error(f"Failed to retrieve job row: {e}")
             # Fallback: don't fail the whole job if we can't read the row
             job_row = None
             job_id = None
@@ -165,25 +167,19 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
                     summarized_jd = llm_service.analyze_job_description(job_post)
                     log.debug("Summarized job description preview: %s", summarized_jd[:200])
                     # extractor returns a list[dict]; convert to string so LLM can use it even if it's not perfect
-                    extracted = llm_service.extract_job_qualifications(summarized_jd)
-                    try:
-                        qualifications_text = json.dumps(extracted)
-                    except Exception:
-                        qualifications_text = str(extracted)
+                    qualifications_text = llm_service.extract_job_qualifications(summarized_jd)
+
                 else:
                     log.info("Extracting qualifications directly from provided job post")
-                    extracted = llm_service.extract_job_qualifications(job_post)
-                    try:
-                        qualifications_text = json.dumps(extracted)
-                    except Exception:
-                        qualifications_text = str(extracted)
+                    qualifications_text = llm_service.extract_job_qualifications(job_post)
+
             except Exception:
                 # Fallback: if extraction fails entirely, use the (summarized) job post as a proxy
                 log.exception("Qualifications extraction failed; falling back to raw job post text")
                 qualifications_text = job_post
 
         # Persist qualifications to the resume_checks row if we found a job_id
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
         if job_id and qualifications_text is not None:
             try:
                 supabase.table("resume_checks").update({"qualifications": qualifications_text, "updated_at": now}).eq("id", job_id).execute()

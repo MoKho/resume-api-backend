@@ -1,8 +1,9 @@
 import time
 from datetime import datetime, timezone
 from app.services.resume_service import supabase, run_resume_check_process
-from app.logging_config import get_logger, bind_logger
+from app.logging_config import get_logger, bind_logger, configure_logging
 
+configure_logging()
 logger = get_logger(__name__)
 POLL_INTERVAL = 5  # seconds
 

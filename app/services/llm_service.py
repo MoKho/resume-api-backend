@@ -231,7 +231,7 @@ def check_resume(resume: str, job_description: str) -> str:
         # including strengths, gaps, suggested improvements, keyword matches, and sample bullets.
         user_prompt = (
             f"<Resume>\n{resume}\n</Resume>\n\n"
-            f"Qualifications:\n{job_description}\n"
+            f"<Qualifications>\n{job_description}\n</Qualifications>"
         )
 
         # Call the generic provider wrapper
@@ -271,10 +271,10 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
         raise
 
 
-def extract_job_qualifications(summarized_job_description: str) -> List[dict]:
+def extract_job_qualifications(summarized_job_description: str) -> str:
     """
     Extract a list of qualifications (with integer weights) from a summarized job description.
-    Returns a list of dicts: {"qualification": str, "weight": int}
+    Returns a csv in string: Qualification, Weight
     """
     log.info("LLM Service: Extracting job qualifications from summarized job description")
     try:
@@ -285,22 +285,8 @@ def extract_job_qualifications(summarized_job_description: str) -> List[dict]:
             user_prompt=f'<JobDescription>\n{summarized_job_description}\n</JobDescription>',
             custom_settings={"temperature": 0.0}
         )
-        quals = json.loads(response_str)
-        # Ensure weights are integers and filter malformed entries
-        cleaned = []
-        for q in quals:
-            qual_text = q.get('qualification') or q.get('name') or q.get('skill')
-            weight = q.get('weight')
-            try:
-                weight_int = int(weight)
-            except Exception:
-                # skip entries with invalid weight
-                continue
-            cleaned.append({"qualification": qual_text, "weight": weight_int})
-        return cleaned
-    except json.JSONDecodeError as e:
-        log.error(f"Failed to decode qualifications JSON: {e}")
-        raise ValueError("The qualifications extractor failed to return valid JSON.")
+        return response_str
+    
     except Exception as e:
         log.error(f"An error occurred during qualifications extraction: {e}")
         raise
