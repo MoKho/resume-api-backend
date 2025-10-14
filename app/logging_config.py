@@ -1,7 +1,10 @@
 import logging
+import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
+from zoneinfo import ZoneInfo
+
 
 
 class JsonFormatter(logging.Formatter):
@@ -13,8 +16,9 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         # Base payload
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
         payload: Dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": now.isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -60,24 +64,39 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+
 def configure_logging(level: int = logging.INFO, log_file: str | None = None) -> None:
-    """Configure the root logger to use JSON formatter. Optionally write to a rotating file."""
+    """Configure the root logger to use JSON formatter. Logs to terminal and file in local/dev."""
     root = logging.getLogger()
     # Avoid adding multiple handlers during module reloads
     if any(isinstance(h.formatter, JsonFormatter) for h in root.handlers if h.formatter):
         return
 
-    stream_handler = logging.StreamHandler()  # defaults to sys.stderr
-    stream_handler.setFormatter(JsonFormatter())
+    env = os.environ.get("ENV", "production").lower()
+    handlers = []
 
-    handlers = [stream_handler]
+    if env in ("local", "development", "dev"):
+        # Log to both terminal and file
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(JsonFormatter())
+        handlers.append(stream_handler)
 
-    if log_file:
-        # Use rotation to avoid unbounded growth; adjust maxBytes/backupCount as needed
+        # Default log file path
+        log_file_path = log_file or os.path.join(os.path.dirname(__file__), "app-local.log")
         from logging.handlers import RotatingFileHandler
-        file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+        file_handler = RotatingFileHandler(log_file_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
         file_handler.setFormatter(JsonFormatter())
         handlers.append(file_handler)
+    else:
+        # Production/staging: log to stream (or file if specified)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(JsonFormatter())
+        handlers.append(stream_handler)
+        if log_file:
+            from logging.handlers import RotatingFileHandler
+            file_handler = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+            file_handler.setFormatter(JsonFormatter())
+            handlers.append(file_handler)
 
     root.handlers = handlers
     root.setLevel(level)
@@ -92,6 +111,7 @@ def bind_logger(logger: logging.Logger, extra: Dict[str, Any] | None = None) -> 
 
     Usage:
         from app.logging_config import get_logger, bind_logger
+        from zoneinfo import ZoneInfo
         logger = get_logger(__name__)
         log = bind_logger(logger, {"user_id": user_id, "trace_id": trace_id})
         log.info("started")
