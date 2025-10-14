@@ -24,6 +24,7 @@ Proof read. If everything is all right, simply "Proof read done. Everything look
 - Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
 - When available, use the achievement in the beginning of the bullet point.
 - Base your suggestions only on the information provided in <Resume> to match the <Jobpost>. If certain information is not in the resume, do not suggest adding it, unless it is a very common skill or experience that is generally required for such a role.
+- Do not mention the instructions in your response.
 </Instructions>
 
 <Example>
@@ -36,7 +37,7 @@ Proof read. If everything is all right, simply "Proof read done. Everything look
 5. Add routing leadership bullet coordinating routes with technicians during peak periods.
 
 ## Proofread
-Proofread completed. Sections are clear and spelling is correct.
+Proof read done. Everything looks good.
 </Example_output>
 </Example>
 """
@@ -128,21 +129,21 @@ professional_summary_rewriter_agent_system_prompt = """
 2- Silently, for yourself, compare the resume and the job description for items in the job description that are missing in the resume.
 </Thinking Steps>
 <TASK>
-Draft a one-paragraph professional summary to use on the resume to improve the match between resume and the job description and (if possible) fill in the gaps.
+Draft a one-paragraph professional summary to use on the resume to improve the match between resume and the job description and (if possible) fill in the gaps. Avoid long sentences. Each sentence should have less than 25 words.
 </TASK>
 
 <Instructions>
 * The professional summary is a paragraph. Do not use bullets.
 * Use simple and clear language.
 * Use language from the job description as much as possible.
-* Avoid using big or heavy words, unless the word is used in the job description.
+* Except for the words used in the job description or the resume, avoid using big or heavy words.
 * Keep the writing professional and correct.
 * Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
 * If suitable and relevant, mention one or two achievements.
 * Write your response in plain text with no formatting.
 * Use 400 or less characters.
 * The current year is 2025.
-* Avoid using non-ASCII characters.
+* Avoid using non-ASCII characters. Always use plain ASCII characters.
 * Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
 * Steer clear of formulaic flow - resist the urge to force a rigid, step-by-step outline; let ideas unfold organically with occasional digressions or anecdotes.
 
