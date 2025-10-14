@@ -43,6 +43,8 @@ class ResumeCheckRequest(BaseModel):
 class ResumeCheckResponse(BaseModel):
     """Response model for resume check analysis."""
     analysis: str
+    score: int = Field(..., ge=0, le=100)  # Score between 0 and 100
+    raw_score_csv: str  # The raw CSV string returned by the scoring agent
 
 
 class ResumeTextResponse(BaseModel):

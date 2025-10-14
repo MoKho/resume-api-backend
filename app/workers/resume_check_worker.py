@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from app.services.resume_service import supabase, run_resume_check_process
 from app.logging_config import get_logger, bind_logger, configure_logging
+import app.utils.csv_to_score
 
 configure_logging()
 logger = get_logger(__name__)
@@ -27,18 +28,19 @@ def process_pending_jobs():
                 supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()}).eq("id", job_id).execute()
                 try:
                     summarize_flag = job.get("summarize_job_post", True)
-                    result = run_resume_check_process(
+                    raw_score_csv, analysis = run_resume_check_process(
                         user_id=job["user_id"],
                         job_post=job["job_post"],
                         resume_text=job.get("resume_text"),
                         summarize_job_post=summarize_flag,
                         qualifications=job.get("qualifications")
                     )
-                    score, analysis = result
-                    temporary_result = score+"\n---Analysis---\n"+analysis
+                    score = app.utils.csv_to_score.csv_to_score(raw_score_csv)
                     supabase.table("resume_checks").update({
                         "status": "completed",
-                        "analysis": temporary_result,
+                        "analysis": analysis,
+                        "score": score,
+                        "raw_score_csv": raw_score_csv,
                         "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
                     }).eq("id", job_id).execute()
                     job_logger.info("Completed resume_check job")

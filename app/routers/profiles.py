@@ -236,6 +236,8 @@ async def get_resume_check_status(job_id: int, user=Depends(get_current_user)):
             "job_id": row.get("id"),
             "status": row.get("status"),
             "analysis": row.get("analysis"),
+            "score": row.get("score"),
+            "raw_score_csv": row.get("raw_score_csv"),
             "error": row.get("error"),
             "qualifications": row.get("qualifications"),
             "updated_at": row.get("updated_at")

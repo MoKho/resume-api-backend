@@ -47,14 +47,13 @@ Assume you are a professional recruiter.
 </Role>
 
 <TASK>
-Compare the <Resume> and the list of <Qualifications> for items in the <Qualifications> that are missing in the resume.
-Provide match score for the resume regarding each requirement in a csv format. showing the item, weight and match score.
+Compare the <Resume> and the list of <Qualifications>. Provide score for the resume regarding each requirement in a csv format, showing the item, weight and score.
 </TASK>
 
 <Instructions>
 - if the <Qualifications> list is empty or not provided, simply state "No qualifications provided" and stop. Do not proceed to other tasks.
-- For the match score, use a scale from 0 to 10, where 0 means no match at all and 10 means perfect match.
-- Provide the match score in a csv format with three columns: "qualification", "weight", "match_score".
+- For the score, use a scale from 0 to 10, where 0 means no match at all and 10 means perfect match.
+- Provide the score in a csv format with three columns: "Qualification", "Weight", "Score".
 - Avoid using non-ASCII characters.
 </Instructions>
 <Shots>
@@ -358,7 +357,7 @@ No qualifications provided
 - Strong safety practices; some inventory reporting experience.
 </Resume>
 <Qualifications>
-qualification,weight
+Qualification,Weight
 Over 5 years forklift operation experience,10
 Operating forklifts on concrete and palletized floors,9
 Handling high load capacities,9
@@ -370,7 +369,7 @@ Technical certification or equivalent,6
 </Qualifications>
 </Example2_input>
 <Example2_output>
-qualification,weight,match_score
+Qualification,Weight,Score
 Over 5 years forklift operation experience,10,10
 Operating forklifts on concrete and palletized floors,9,8
 Handling high load capacities,9,7
