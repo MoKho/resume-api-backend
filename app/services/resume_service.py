@@ -108,7 +108,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
 
 
-def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True) -> str:
+def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> str:
     """
     Run a resume vs job-post analysis and return a detailed textual analysis.
 
@@ -156,8 +156,8 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
         # Step 2: Determine or extract the qualifications text (string)
         qualifications_text: Optional[str] = None
         # Prefer qualifications already present on the resume_checks row
-        if job_row and job_row.get("qualifications"):
-            qualifications_text = str(job_row.get("qualifications"))
+        if qualifications is not None:
+            qualifications_text = str(qualifications)
             log.info("Using qualifications text found on resume_checks row", extra={"length": len(qualifications_text)})
         else:
             # If not present, derive it. If summarize_job_post is True, summarize first then extract.
@@ -179,7 +179,7 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
                 qualifications_text = job_post
 
         # Persist qualifications to the resume_checks row if we found a job_id
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         if job_id and qualifications_text is not None:
             try:
                 supabase.table("resume_checks").update({"qualifications": qualifications_text, "updated_at": now}).eq("id", job_id).execute()

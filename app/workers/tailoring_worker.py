@@ -1,5 +1,6 @@
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from app.services.resume_service import supabase, run_tailoring_process
 from app.logging_config import get_logger, bind_logger
 
@@ -20,13 +21,13 @@ def process_pending_applications():
                 app_id = app["id"]
                 app_logger = bind_logger(logger, {"agent_name": "tailoring_worker", "application_id": app_id, "user_id": app.get("user_id")})
                 app_logger.info("Picking up application")
-                supabase.table("applications").update({"status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", app_id).execute()
+                supabase.table("applications").update({"status": "processing", "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()}).eq("id", app_id).execute()
                 try:
                     run_tailoring_process(application_id=app_id, user_id=app["user_id"])
                     app_logger.info("Completed application")
                 except Exception as e:
                     app_logger.exception("Application processing failed", exc_info=True)
-                    supabase.table("applications").update({"status": "failed", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", app_id).execute()
+                    supabase.table("applications").update({"status": "failed", "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()}).eq("id", app_id).execute()
             time.sleep(POLL_INTERVAL)
         except Exception as e:
             logger.exception("Tailoring worker loop error: %s", e)

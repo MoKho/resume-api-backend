@@ -16,9 +16,10 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         # Base payload
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        # now = datetime.now(timezone.utc) --- IGNORE ---
         payload: Dict[str, Any] = {
-            "timestamp": now.isoformat(),
+            "timestamp": now,
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

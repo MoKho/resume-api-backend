@@ -181,7 +181,8 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
     user_id = str(user.id)
     log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
     try:
-        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+
         if request.job_post is None or request.job_post.strip() == "":
             if request.qualifications is None or request.qualifications.strip() == "":
                 raise HTTPException(status_code=400, detail="Either job_post or qualifications must be provided and non-empty.")
@@ -210,11 +211,12 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
         job_id = job_row["id"]
         log.info("Enqueued resume_check job", extra={"job_id": job_id})
         return {"job_id": job_id, "status_url": f"/profiles/check-resume/{job_id}", "status": "pending"}
-    except HTTPException:
+    except HTTPException as e:
+        log.error("HTTP error occurred: %s", e.detail)
         raise
-    except Exception:
-        log.exception("Error enqueuing resume check")
-        raise HTTPException(status_code=500, detail="Internal error")
+    except Exception as e:
+        log.exception("Error enqueuing resume check: %s", e)
+        raise HTTPException(status_code=500, detail=f'Internal error: {e}')
 
 
 @router.get("/check-resume/{job_id}")
