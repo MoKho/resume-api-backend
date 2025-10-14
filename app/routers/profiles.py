@@ -219,7 +219,7 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
         raise HTTPException(status_code=500, detail=f'Internal error: {e}')
 
 
-@router.get("/check-resume/{job_id}")
+@router.get("/check-resume/{job_id}", response_model=ResumeCheckResponse)
 async def get_resume_check_status(job_id: int, user=Depends(get_current_user)):
     """
     Retrieve the status and analysis of an enqueued resume check job.

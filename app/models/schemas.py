@@ -40,11 +40,32 @@ class ResumeCheckRequest(BaseModel):
     # (e.g., a JSON-like array or any structured text). LLMs can parse it.
     qualifications: Optional[str] = None
 
+class ResumeCheckEnqueueResponse(BaseModel):
+    job_id: int
+    status_url: str
+    status: str
+
 class ResumeCheckResponse(BaseModel):
-    """Response model for resume check analysis."""
-    analysis: str
-    score: int = Field(..., ge=0, le=100)  # Score between 0 and 100
-    raw_score_csv: str  # The raw CSV string returned by the scoring agent
+    """Response model for resume check analysis.
+
+    Fields:
+    - job_id: The job ID.
+    - status: The status of the job.
+    - analysis: The analysis result as a string.
+    - score: An integer score between 0 and 100 (inclusive).
+    - raw_score_csv: The raw CSV string returned by the scoring agent.
+    - error: Any error message.
+    - qualifications: Qualifications text.
+    - updated_at: Timestamp of last update.
+    """
+    job_id: int
+    status: str
+    analysis: Optional[str] = None
+    score: Optional[int] = Field(None, ge=0, le=100)  # Score between 0 and 100
+    raw_score_csv: Optional[str] = None
+    error: Optional[str] = None
+    qualifications: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ResumeTextResponse(BaseModel):
@@ -93,7 +114,3 @@ class ProfileResponse(BaseModel):
         orm_mode = True
 
 
-class ResumeCheckEnqueueResponse(BaseModel):
-    job_id: int
-    status_url: str
-    status: str
