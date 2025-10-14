@@ -158,7 +158,10 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
         # Prefer qualifications already present on the resume_checks row
         if qualifications is not None:
             qualifications_text = str(qualifications)
-            log.info("Using qualifications text found on resume_checks row", extra={"length": len(qualifications_text)})
+            log.info("Using qualifications text found on resume_checks row", extra={"Qualifications": qualifications_text[:100] })
+        elif job_row and job_row.get("qualifications"):
+            qualifications_text = job_row.get("qualifications")
+            log.info("Using qualifications text found on existing job row", extra={"job id": job_id})
         else:
             # If not present, derive it. If summarize_job_post is True, summarize first then extract.
             try:
@@ -168,16 +171,12 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
                     log.debug("Summarized job description preview: %s", summarized_jd[:200])
                     # extractor returns a list[dict]; convert to string so LLM can use it even if it's not perfect
                     qualifications_text = llm_service.extract_job_qualifications(summarized_jd)
-
                 else:
                     log.info("Extracting qualifications directly from provided job post")
                     qualifications_text = llm_service.extract_job_qualifications(job_post)
-
-            except Exception:
-                # Fallback: if extraction fails entirely, use the (summarized) job post as a proxy
-                log.exception("Qualifications extraction failed; falling back to raw job post text")
-                qualifications_text = job_post
-
+            except Exception as e:
+                log.exception("Qualifications extraction failed. Failing the job.")
+                raise
         # Persist qualifications to the resume_checks row if we found a job_id
         now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         if job_id and qualifications_text is not None:

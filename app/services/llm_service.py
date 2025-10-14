@@ -87,6 +87,8 @@ model_mapping = {
 # --- Core LLM Caller Function ---
 
 def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None):
+    log = bind_logger(logger, {"agent_name": "call llm provider"})
+
     log.info("Calling LLM provider", extra={"provider": provider_name, "workload": workload_difficulty})
     """
     Calls an OpenAI-compatible LLM provider and returns the results based on workload difficulty.
@@ -178,6 +180,8 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 # --- Real LLM Functions  ---
 
 def analyze_job_description(job_description: str) -> str:
+    log = bind_logger(logger, {"agent_name": "analyze_job_description"})
+
     log.info("LLM Service: Analyzing job description")
     prompt = f"<Job Description>\n{job_description}\n</Job Description>"
     return call_llm_provider(
@@ -188,6 +192,8 @@ def analyze_job_description(job_description: str) -> str:
     )
 
 def rewrite_job_history(job_history_background: str, summarized_job_description: str) -> str:
+    log = bind_logger(logger, {"agent_name": "rewrite_job_history"})
+
     log.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
     custom_settings = {"reasoning_effort": "high"}
@@ -201,6 +207,8 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     )
 
 def generate_professional_summary(updated_resume: str, summarized_job_description: str) -> str:
+    log = bind_logger(logger, {"agent_name": "generate_professional_summary"})
+
     log.info("LLM Service: Generating new professional summary")
     user_prompt = f"<Job Description>\n{summarized_job_description}\n</Job Description>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
@@ -218,10 +226,12 @@ def check_resume(resume: str, job_description: str) -> str:
     via `call_llm_provider`, and returns the agent's text output. Logging is intentionally
     concise to avoid recording PII; only short previews of inputs are logged.
     """
+    log = bind_logger(logger, {"agent_name": "check_resume"})
+
     try:
         log.info("LLM Service: Checking resume against job description")
         # Log short previews (first 200 chars) to help debugging without leaking full PII
-        preview_len = 200
+        preview_len = 100
         job_preview = (job_description[:preview_len].replace("\n", " ") + ("..." if len(job_description) > preview_len else "")) if job_description else ""
         resume_preview = (resume[:preview_len].replace("\n", " ") + ("..." if len(resume) > preview_len else "")) if resume else ""
         log.debug("Job preview", extra={"preview": job_preview})
@@ -253,6 +263,8 @@ def check_resume(resume: str, job_description: str) -> str:
         raise
 
 def parse_resume_to_json(resume_text: str) -> List[dict]:
+    log = bind_logger(logger, {"agent_name": "parse_resume_to_json"})
+
     log.info("LLM Service: Parsing resume text to JSON...")
     try:
         response_str = call_llm_provider(
@@ -276,6 +288,8 @@ def extract_job_qualifications(summarized_job_description: str) -> str:
     Extract a list of qualifications (with integer weights) from a summarized job description.
     Returns a csv in string: Qualification, Weight
     """
+    log = bind_logger(logger, {"agent_name": "extract_job_qualifications"})
+
     log.info("LLM Service: Extracting job qualifications from summarized job description")
     try:
         response_str = call_llm_provider(
