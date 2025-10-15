@@ -37,7 +37,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         log.info("Fetching data from Supabase...")
         app_data = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
         profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text").eq("id", user_id).single().execute().data
-        job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("is_default_rewrite", True).execute().data
+        job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("user_id", user_id).eq("is_default_rewrite", True).execute().data
         
         # Step 2: Analyze the job description
         summarized_jd = llm_service.analyze_job_description(app_data['target_job_description'])
