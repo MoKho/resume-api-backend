@@ -191,13 +191,22 @@ def analyze_job_description(job_description: str) -> str:
         user_prompt=prompt
     )
 
-def rewrite_job_history(job_history_background: str, summarized_job_description: str) -> str:
+def rewrite_job_history(job_history_background: str, summarized_job_description: str, current_resume: str) -> str:
     log = bind_logger(logger, {"agent_name": "rewrite_job_history"})
 
     log.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
     custom_settings = {"reasoning_effort": "high"}
-    prompt = f"<JobDescription>\n\n"+summarized_job_description+f"\n\n</JobDescription>" + f"\n\n<background>\n{job_history_background}\n</background>"
+    prompt = (f"<JobDescription>\n\n" +
+              summarized_job_description +
+              f"\n\n</JobDescription>" +
+              f"\n\n<background>\n" +
+              job_history_background +
+              "\n</background>" +
+              "\n\n<current_resume>\n" +
+                current_resume +
+              "\n</current_resume>"
+    )
     return call_llm_provider(
         provider_name='groq',
         workload_difficulty='resume-rewrite-agent',

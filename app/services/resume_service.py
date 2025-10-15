@@ -50,15 +50,21 @@ def run_tailoring_process(application_id: int, user_id: str):
                 log.warning("Skipping rewrite as no detailed background", extra={"history_id": history['id']})
                 continue
 
+            log.info("Rewriting job history", extra={"history_id": history['job_title']})
+
+            current_resume_context = history.get('achievements_list', '')
+            log.info("type of achievements_list: %s", type(current_resume_context))
+            current_resume = "\n".join(f'- {item}' for item in current_resume_context)
+            log.info(f'\n\n\n\n\n\n\n\n\nType:  {type(current_resume)} \n and preview of current resume context:{current_resume[:200]}')
             rewritten_text = llm_service.rewrite_job_history(
                 job_history_background=history['detailed_background'],
-                summarized_job_description=summarized_jd
+                summarized_job_description=summarized_jd,
+                current_resume=current_resume  # Using detailed background as current resume context
             )
             rewritten_histories[history['id']] = rewritten_text
 
         # Step 4: Assemble the intermediate resume with real find-and-replace
         updated_resume = profile_data['base_resume_text']
-
         log.info("Replacing job history sections in the resume...")
         for history in job_histories_to_rewrite:
             history_id = history['id']

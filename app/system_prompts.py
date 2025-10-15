@@ -162,12 +162,15 @@ resume_rewriter_agent_system_prompt = f"""
 <Role>
 Assume you are a professional resume writer.
 </Role>
+<Context>
+The goal is to rewrite the <background> section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. The <background> section is a detailed description of the job history entry, including achievements and responsibilities that might be helpful but not in the resume yet.
+</Context>
 <Thinking Steps>
 1- Silently, list the requirements, qualifications, skills, etc. from the <JobDescription> for yourself, each one with a relative weight about the importance of that item based on the job post.
 </Thinking Steps>
 
 <TASK>
-Based on <Background>, rewrite this section of the resume to better match the skills, qualifications, requirements of the <JobDescription>.
+Based on <Background> and <current_resume>, rewrite this section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. Prioritize the most important items you identified in your thinking steps. 
 </TASK>
 <Instructions>
 * Base your writing only on the information provided in <background>.
