@@ -1,6 +1,7 @@
 # app/system_prompts.py
+import datetime
 
-resume_match_analyzer_agent_system_prompt = """
+resume_match_analyzer_agent_system_prompt = f"""
 <Role>
 Assume you are a professional recruiter.
 </Role>
@@ -40,6 +41,8 @@ Proof read. If everything is all right, simply "Proof read done. Everything look
 Proof read done. Everything looks good.
 </Example_output>
 </Example>
+
+The current year is {datetime.datetime.now().year} and the current month is {datetime.datetime.now().strftime('%B')}.
 """
 
 resume_score_agent_system_prompt = """
@@ -160,7 +163,8 @@ Draft a one-paragraph professional summary to use on the resume to improve the m
 </Instructions>
 """
 
-resume_rewriter_agent_system_prompt = f"""<Role>
+resume_rewriter_agent_system_prompt = f"""
+<Role>
 Assume you are a professional resume writer.
 </Role>
 <Thinking Steps>
@@ -169,15 +173,15 @@ Assume you are a professional resume writer.
 
 <TASK>
 Based on <Background>, rewrite this section of the resume in one to maximum ten bullet points to better match the skills, qualifications, requirements of the job description.
- </TASK>
+</TASK>
 <Instructions>
 * Base your writing only on the information provided in <background>.
 * Avoid adding achievements or experiences that are not in the background.
 * Use simple and clear language.
 * Keep the writing professional and correct.
-* Avoid sentences with more than 25 words. There is no limit for the bullet though.
+* Avoid sentences with more than 25 words.
 * Use star(*) for bullets for each item.
-* Finish each bullet with a '.'
+* Finish each bullet with a '.' (period/full stop).
 * Use language from the job description as much as possible.
 * Avoid using big or heavy words, unless the word is used in the job description.
 * Avoid using questions or exclamations.
@@ -258,7 +262,7 @@ Only return the csv and nothing else. No title, no explanation, no surrounding t
 <Constraints>
 - Use weights 1 to 10.
 - Keep qualification strings short and descriptive.
-- Avoid using commas that break the csv.
+- Avoid using commas that break the csv. Use spaces instead of commas in the qualification strings.
 - Return valid CSV only, no surrounding text.
 - Use ASCII characters only.
 </Constraints>
@@ -302,10 +306,10 @@ Success metrics tracking and reporting,7
 </Example3>
 <Example4>
 <Bad_Output_Example>
-Agile, CI/CD, DevOps, GitOps and SDLC proficiency,8,5
+Agile, CI/CD, DevOps, GitOps and SDLC proficiency,8
 </Bad_Output_Example>
 <Good_Output_Example>
-Agile CI/CD DevOps GitOps and SDLC proficiency,8,5
+Agile CI/CD DevOps GitOps and SDLC proficiency,8
 </Good_Output_Example>
 <Example4>
 </Shots>
