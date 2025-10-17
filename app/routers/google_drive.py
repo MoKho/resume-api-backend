@@ -119,3 +119,15 @@ async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
         result["update"] = update_res
 
     return result
+
+
+@router.get("/auth-status")
+async def auth_status(user=Depends(get_current_user)):
+    """Check if the user has authenticated their Google account."""
+    try:
+        creds = load_credentials(str(user.id))
+        if creds and creds.valid:
+            return {"authenticated": True}
+    except Exception:
+        pass
+    return {"authenticated": False}
