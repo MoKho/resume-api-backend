@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, Optional
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+
+from app.security import get_current_user
+from app.services.google_drive_service import (
+    build_flow,
+    sign_state,
+    verify_state,
+    save_credentials,
+    load_credentials,
+    build_drive_service,
+    build_docs_service,
+    export_google_doc_text,
+    update_file_content,
+    basic_analyze_text,
+)
+
+
+router = APIRouter(tags=["google-drive"])
+
+
+@router.get("/authorize")
+async def authorize(request: Request, user=Depends(get_current_user)):
+    """Return a Google OAuth consent URL for Drive (drive.file scope)."""
+    # Determine redirect_uri based on environment
+    # Allow overriding via env for production domain
+    redirect_uri = os.environ.get(
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "http://localhost:8000/google-drive/oauth2callback",
+    )
+
+    flow = build_flow(redirect_uri)
+
+    # Encode user and returnUrl (optional) in state to resume after callback
+    state = sign_state({"user_id": str(user.id)})
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes=True,
+        prompt="consent",
+        state=state,
+    )
+    return {"authorization_url": auth_url}
+
+
+@router.get("/oauth2callback")
+async def oauth2callback(request: Request, state: str = Query(...), code: str = Query(None)):
+    """Handle Google OAuth redirect: exchange code for tokens and persist them."""
+    redirect_uri = os.environ.get(
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "http://localhost:8000/google-drive/oauth2callback",
+    )
+
+    data = verify_state(state)
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Missing user_id in state")
+
+    try:
+        flow = build_flow(redirect_uri)
+        # Build full URL for fetch_token
+        # In FastAPI, request.url includes query params
+        flow.fetch_token(authorization_response=str(request.url))
+        creds = flow.credentials
+        # Persist tokens
+        save_credentials(user_id, json.loads(creds.to_json()))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {e}")
+
+    # Redirect back to the app (optional). For API, just return success
+    return JSONResponse({"status": "ok", "user_id": user_id})
+
+
+@router.post("/open-file")
+async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
+    """Read, analyze, and optionally edit a specific file by fileId.
+
+    Request JSON:
+    - fileId: str (required)
+    - new_content: str (optional) if provided, will update file
+    """
+    file_id = payload.get("fileId")
+    if not file_id or not isinstance(file_id, str):
+        raise HTTPException(status_code=400, detail="fileId is required")
+
+    creds = load_credentials(str(user.id))
+    drive = build_drive_service(creds)
+    docs = build_docs_service(creds)
+
+    content = export_google_doc_text(drive, file_id)
+    analysis = basic_analyze_text(content)
+
+    result: Dict[str, Any] = {
+        "fileId": file_id,
+        "analysis": analysis,
+        "content_preview": content[:5000],  # avoid huge payloads
+    }
+
+    new_content = payload.get("new_content")
+    if isinstance(new_content, str) and new_content.strip():
+        update_res = update_file_content(drive, docs, file_id, new_content)
+        result["update"] = update_res
+
+    return result
