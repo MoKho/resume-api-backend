@@ -82,7 +82,9 @@ async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
 
     Request JSON:
     - fileId: str (required)
-    - new_content: str (optional) if provided, will update file
+    - find: str (optional) text to search for
+    - replace: str (optional) replacement text
+    - replace_all: bool (optional, default false)
     """
     file_id = payload.get("fileId")
     if not file_id or not isinstance(file_id, str):
@@ -101,9 +103,19 @@ async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
         "content_preview": content[:5000],  # avoid huge payloads
     }
 
-    new_content = payload.get("new_content")
-    if isinstance(new_content, str) and new_content.strip():
-        update_res = update_file_content(drive, docs, file_id, new_content)
+    find_text = payload.get("find")
+    replace_text = payload.get("replace")
+    replace_all = bool(payload.get("replace_all", False))
+
+    if isinstance(find_text, str) and find_text and isinstance(replace_text, str):
+        update_res = update_file_content(
+            drive,
+            docs,
+            file_id,
+            find_text,
+            replace_text,
+            replace_all=replace_all,
+        )
         result["update"] = update_res
 
     return result

@@ -9,16 +9,17 @@ Notes:
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import io
 import json
 import os
 import time
-import hmac
-import base64
-import hashlib
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 from supabase import create_client, Client
@@ -193,11 +194,67 @@ def export_google_doc_text(drive_service, file_id: str) -> str:
         raise HTTPException(status_code=404, detail=f"Unable to export file content: {e}")
 
 
-def update_file_content(drive_service, docs_service, file_id: str, new_content: str) -> Dict[str, Any]:
-    """Update content of a file.
+def _extract_text_with_index_map(doc: Dict[str, Any]) -> Tuple[str, List[int]]:
+    """Return the document text and a map from text index to Docs API index."""
+    chars: List[str] = []
+    indices: List[int] = []
 
-    If it's a Google Doc, use Docs API to replace body. Otherwise, attempt Drive update with media upload.
-    """
+    def visit(elements: Optional[List[Dict[str, Any]]]) -> None:
+        if not elements:
+            return
+        for element in elements:
+            paragraph = element.get("paragraph")
+            if paragraph:
+                for para_element in paragraph.get("elements", []):
+                    start = para_element.get("startIndex")
+                    text_run = para_element.get("textRun")
+                    if start is None or not text_run:
+                        continue
+                    text = text_run.get("content", "")
+                    for offset, ch in enumerate(text):
+                        chars.append(ch)
+                        indices.append(start + offset)
+            table = element.get("table")
+            if table:
+                for row in table.get("tableRows", []):
+                    for cell in row.get("tableCells", []):
+                        visit(cell.get("content"))
+            table_of_contents = element.get("tableOfContents")
+            if table_of_contents:
+                visit(table_of_contents.get("content"))
+
+    visit(doc.get("body", {}).get("content"))
+    return "".join(chars), indices
+
+
+def _find_text_occurrences(doc: Dict[str, Any], search_text: str) -> List[Tuple[int, int]]:
+    if not search_text:
+        return []
+    full_text, index_map = _extract_text_with_index_map(doc)
+    occurrences: List[Tuple[int, int]] = []
+    start_pos = 0
+    while True:
+        pos = full_text.find(search_text, start_pos)
+        if pos == -1:
+            break
+        start_index = index_map[pos]
+        end_index = index_map[pos + len(search_text) - 1] + 1
+        occurrences.append((start_index, end_index))
+        start_pos = pos + len(search_text)
+    return occurrences
+
+
+def update_file_content(
+    drive_service,
+    docs_service,
+    file_id: str,
+    search_text: str,
+    replace_text: str,
+    replace_all: bool = False,
+) -> Dict[str, Any]:
+    """Replace text within a Google Doc while preserving formatting."""
+    if not search_text:
+        raise HTTPException(status_code=400, detail="search_text is required")
     try:
         meta = (
             drive_service.files()
@@ -208,39 +265,63 @@ def update_file_content(drive_service, docs_service, file_id: str, new_content: 
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"File not found: {e}")
 
-    if mime == "application/vnd.google-apps.document":
-        # Use Docs API to replace entire body content
-        try:
-            doc = docs_service.documents().get(documentId=file_id).execute()
-            end_index = doc.get("body", {}).get("content", [{}])[-1].get("endIndex")
-            if not isinstance(end_index, int):
-                end_index = 1_000_000  # fallback large number
+    if mime != "application/vnd.google-apps.document":
+        raise HTTPException(status_code=400, detail="Search/replace is only supported for Google Docs")
 
+    try:
+        doc = docs_service.documents().get(documentId=file_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+
+    occurrences = _find_text_occurrences(doc, search_text)
+    if not occurrences:
+        return {"updated": False, "matches": 0, "message": "Text not found"}
+
+    try:
+        if replace_all:
             requests = [
-                {"deleteContentRange": {"range": {"startIndex": 1, "endIndex": end_index}}},
-                {"insertText": {"location": {"index": 1}, "text": new_content}},
+                {
+                    "replaceAllText": {
+                        "containsText": {"text": search_text, "matchCase": True},
+                        "replaceText": replace_text,
+                    }
+                }
             ]
             result = (
                 docs_service.documents()
                 .batchUpdate(documentId=file_id, body={"requests": requests})
                 .execute()
             )
-            return {"updated": True, "method": "docs.batchUpdate", "result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to update Google Doc: {e}")
-    else:
-        # Non-Google file: try Drive update with media upload
-        try:
-            MediaIoBaseUpload = _lazy_import_media_upload()
-            media = MediaIoBaseUpload(io.BytesIO(new_content.encode("utf-8")), mimetype="text/plain", resumable=False)
-            result = (
-                drive_service.files()
-                .update(fileId=file_id, media_body=media)
-                .execute()
-            )
-            return {"updated": True, "method": "drive.files.update", "result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to update file: {e}")
+            return {"updated": True, "matches": len(occurrences), "method": "replaceAllText", "result": result}
+
+        # Replace only the first occurrence using a temporary named range to preserve formatting.
+        start_index, end_index = occurrences[0]
+        range_name = f"replace_{uuid.uuid4().hex}"
+        requests = [
+            {
+                "createNamedRange": {
+                    "name": range_name,
+                    "range": {"startIndex": start_index, "endIndex": end_index},
+                }
+            },
+            {
+                "replaceNamedRangeContent": {
+                    "namedRangeName": range_name,
+                    "text": replace_text,
+                }
+            },
+            {"deleteNamedRange": {"name": range_name}},
+        ]
+        result = (
+            docs_service.documents()
+            .batchUpdate(documentId=file_id, body={"requests": requests})
+            .execute()
+        )
+        return {"updated": True, "matches": 1, "method": "replaceNamedRangeContent", "result": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update Google Doc: {e}")
 
 
 def basic_analyze_text(text: str) -> Dict[str, Any]:
