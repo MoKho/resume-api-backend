@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routers import applications, profiles
+from app.routers import google_drive as google_drive_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.logging_config import configure_logging, get_logger, bind_logger
 import os
@@ -106,6 +107,7 @@ app.add_middleware(
 # Include the routers
 app.include_router(applications.router)
 app.include_router(profiles.router)
+app.include_router(google_drive_router.router, prefix="/google-drive")
 
 
 
