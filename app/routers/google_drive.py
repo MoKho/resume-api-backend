@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 
 from app.security import get_current_user
 from app.services.google_drive_service import (
@@ -24,12 +24,42 @@ from app.services.google_drive_service import (
 
 router = APIRouter(tags=["google-drive"])
 
+def _popup_close_page(status: str, user_id: str | None, origin: str, message: str | None = None) -> str:
+    # Very small page that notifies the opener and closes itself.
+    safe_status = (status or "error").replace('"', "")
+    safe_user = (user_id or "").replace('"', "")
+    safe_origin = (origin or "").replace('"', "")
+    safe_msg = (message or "").replace('"', "")
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Google Drive Auth</title></head>
+<body>
+<script>
+(function() {{
+  var data = {{
+    type: "google-drive-auth",
+    status: "{safe_status}",
+    userId: "{safe_user}",
+    message: "{safe_msg}"
+  }};
+  try {{
+    if (window.opener && "{safe_origin}") {{
+      window.opener.postMessage(data, "{safe_origin}");
+    }}
+  }} catch (e) {{}}
+  window.close();
+  // Fallback if window cannot close
+  setTimeout(function() {{
+    document.body.textContent = "You can close this window.";
+  }}, 500);
+}})();
+</script>
+</body></html>"""
+
 
 @router.get("/authorize")
 async def authorize(request: Request, user=Depends(get_current_user)):
     """Return a Google OAuth consent URL for Drive (drive.file scope)."""
     # Determine redirect_uri based on environment
-    # Allow overriding via env for production domain
     redirect_uri = os.environ.get(
         "GOOGLE_OAUTH_REDIRECT_URI",
         "http://localhost:8000/google-drive/oauth2callback",
@@ -37,8 +67,12 @@ async def authorize(request: Request, user=Depends(get_current_user)):
 
     flow = build_flow(redirect_uri)
 
-    # Encode user and returnUrl (optional) in state to resume after callback
-    state = sign_state({"user_id": str(user.id)})
+    # Determine the frontend origin to notify after auth
+    # Prefer the Origin header; fallback to env FRONTEND_ORIGIN.
+    frontend_origin = request.headers.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
+
+    # Encode user and origin in state to resume after callback
+    state = sign_state({"user_id": str(user.id), "origin": frontend_origin})
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -58,19 +92,21 @@ async def oauth2callback(request: Request, state: str = Query(...), code: str = 
 
     data = verify_state(state)
     user_id = data.get("user_id")
+    origin = data.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
     if not user_id:
-        raise HTTPException(status_code=400, detail="Missing user_id in state")
+        html = _popup_close_page("error", None, origin, "Missing user_id in state")
+        return HTMLResponse(content=html, media_type="text/html", status_code=400)
 
     try:
         flow = build_flow(redirect_uri)
-        # Build full URL for fetch_token
-        # In FastAPI, request.url includes query params
         flow.fetch_token(authorization_response=str(request.url))
         creds = flow.credentials
-        # Persist tokens
         save_credentials(user_id, json.loads(creds.to_json()))
+        html = _popup_close_page("ok", user_id, origin, None)
+        return HTMLResponse(content=html, media_type="text/html")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {e}")
+        html = _popup_close_page("error", user_id, origin, f"OAuth exchange failed: {e}")
+        return HTMLResponse(content=html, media_type="text/html", status_code=400)
 
     # Redirect back to the app (optional). For API, just return success
     return JSONResponse({"status": "ok", "user_id": user_id})
