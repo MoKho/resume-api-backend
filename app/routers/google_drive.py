@@ -41,7 +41,7 @@ async def authorize(request: Request, user=Depends(get_current_user)):
     state = sign_state({"user_id": str(user.id)})
     auth_url, _ = flow.authorization_url(
         access_type="offline",
-        include_granted_scopes=True,
+        include_granted_scopes="true",
         prompt="consent",
         state=state,
     )
@@ -95,12 +95,12 @@ async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
     docs = build_docs_service(creds)
 
     content = export_google_doc_text(drive, file_id)
-    analysis = basic_analyze_text(content)
+    #analysis = basic_analyze_text(content)
 
     result: Dict[str, Any] = {
         "fileId": file_id,
-        "analysis": analysis,
-        "content_preview": content[:5000],  # avoid huge payloads
+        #"analysis": analysis,
+        "content": content,  # contents of the file
     }
 
     find_text = payload.get("find")

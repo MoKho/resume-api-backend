@@ -1,5 +1,6 @@
 # Environment
 .env
+client_secret_oauth_apps.googleusercontent.com.json
 venv/
 .venv/
 
