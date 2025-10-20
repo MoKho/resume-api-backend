@@ -200,8 +200,12 @@ def export_google_doc_text(drive_service, file_id: str) -> str:
             return data
         return ""
     except Exception as e:
-        # Surface a clearer error to the caller.
-        raise HTTPException(status_code=404, detail=f"Unable to export file content: {e}")
+        # Surface a clearer error to the caller including file id and known mime (if available).
+        try:
+            file_hint = f" fileId={file_id} mime={mime}"
+        except Exception:
+            file_hint = f" fileId={file_id}"
+        raise HTTPException(status_code=404, detail=f"Unable to export file content:{file_hint}: {e}")
 
 
 def _extract_text_with_index_map(doc: Dict[str, Any]) -> Tuple[str, List[int]]:
