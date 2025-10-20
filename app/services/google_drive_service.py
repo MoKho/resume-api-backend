@@ -38,7 +38,10 @@ GOOGLE_CLIENT_SECRET_FILENAME = "client_secret_oauth_apps.googleusercontent.com.
 GOOGLE_CLIENT_SECRET_PATH = str(Path(__file__).resolve().parent.parent / GOOGLE_CLIENT_SECRET_FILENAME)
 
 DRIVE_SCOPES = [
+    # drive.file only gives access to files created or explicitly opened by the app.
+    # Add readonly so the app can read user files the user has access to.
     "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 OAUTH_STATE_SECRET = os.environ.get("OAUTH_STATE_SECRET", "dev-insecure-state-secret")
@@ -179,18 +182,25 @@ def build_docs_service(credentials) -> Any:
 
 def export_google_doc_text(drive_service, file_id: str) -> str:
     try:
-        data = (
-            drive_service.files()
-            .export(fileId=file_id, mimeType="text/plain")
-            .execute()
-        )
+        # First check t
+        # he file metadata to determine how to fetch it.
+        meta = drive_service.files().get(fileId=file_id, fields="mimeType").execute()
+        mime = meta.get("mimeType", "")
+        # Google Docs -> use export
+        if mime == "application/vnd.google-apps.document":
+            data = drive_service.files().export(fileId=file_id, mimeType="text/plain").execute()
+        else:
+            # Non-Google files -> download media
+            # alt="media" should return bytes for binary/text files.
+            data = drive_service.files().get(fileId=file_id, alt="media").execute()
+
         if isinstance(data, bytes):
             return data.decode("utf-8", errors="ignore")
         if isinstance(data, str):
             return data
         return ""
     except Exception as e:
-        # Could be non-Google Doc; try downloading content (for non-Google files this needs media download)
+        # Surface a clearer error to the caller.
         raise HTTPException(status_code=404, detail=f"Unable to export file content: {e}")
 
 
