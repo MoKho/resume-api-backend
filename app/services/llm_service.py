@@ -208,7 +208,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
               "\n</current_resume>"
     )
     return call_llm_provider(
-        provider_name='groq',
+        provider_name='gemini',
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,

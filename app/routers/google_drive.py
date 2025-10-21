@@ -10,151 +10,152 @@ from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from app.security import get_current_user
 from app.services.google_drive_service import (
     build_flow,
-    sign_state,
-    verify_state,
-    save_credentials,
+    export_google_doc_text,
     load_credentials,
+    save_credentials,
+    sign_state,
+    update_file_content,
+    verify_state,
     build_drive_service,
     build_docs_service,
-    export_google_doc_text,
-    update_file_content,
-    basic_analyze_text,
+    get_supabase,
+)
+from app.services.google_service_account import (
+    build_server_drive_service,
+    build_server_docs_service,
 )
 
 
 router = APIRouter(tags=["google-drive"])
 
-def _popup_close_page(status: str, user_id: str | None, origin: str, message: str | None = None) -> str:
-    # Very small page that notifies the opener and closes itself.
-    safe_status = (status or "error").replace('"', "")
-    safe_user = (user_id or "").replace('"', "")
-    safe_origin = (origin or "").replace('"', "")
-    safe_msg = (message or "").replace('"', "")
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Google Drive Auth</title></head>
-<body>
-<script>
-(function() {{
-  var data = {{
-    type: "google-drive-auth",
-    status: "{safe_status}",
-    userId: "{safe_user}",
-    message: "{safe_msg}"
-  }};
-  try {{
-    if (window.opener && "{safe_origin}") {{
-      window.opener.postMessage(data, "{safe_origin}");
-    }}
-  }} catch (e) {{}}
-  window.close();
-  // Fallback if window cannot close
-  setTimeout(function() {{
-    document.body.textContent = "You can close this window.";
-  }}, 500);
-}})();
-</script>
-</body></html>"""
+# ... existing code ...
 
-
-@router.get("/authorize")
-async def authorize(request: Request, user=Depends(get_current_user)):
-    """Return a Google OAuth consent URL for Drive (drive.file scope)."""
-    # Determine redirect_uri based on environment
-    redirect_uri = os.environ.get(
-        "GOOGLE_OAUTH_REDIRECT_URI",
-        "http://localhost:8000/google-drive/oauth2callback",
-    )
-
-    flow = build_flow(redirect_uri)
-
-    # Determine the frontend origin to notify after auth
-    # Prefer the Origin header; fallback to env FRONTEND_ORIGIN.
-    frontend_origin = request.headers.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-
-    # Encode user and origin in state to resume after callback
-    state = sign_state({"user_id": str(user.id), "origin": frontend_origin})
-    auth_url, _ = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent",
-        state=state,
-    )
-    return {"authorization_url": auth_url}
-
-
-@router.get("/oauth2callback")
-async def oauth2callback(request: Request, state: str = Query(...), code: str = Query(None)):
-    """Handle Google OAuth redirect: exchange code for tokens and persist them."""
-    redirect_uri = os.environ.get(
-        "GOOGLE_OAUTH_REDIRECT_URI",
-        "http://localhost:8000/google-drive/oauth2callback",
-    )
-
-    data = verify_state(state)
-    user_id = data.get("user_id")
-    origin = data.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-    if not user_id:
-        html = _popup_close_page("error", None, origin, "Missing user_id in state")
-        return HTMLResponse(content=html, media_type="text/html", status_code=400)
-
-    try:
-        flow = build_flow(redirect_uri)
-        flow.fetch_token(authorization_response=str(request.url))
-        creds = flow.credentials
-        save_credentials(user_id, json.loads(creds.to_json()))
-        html = _popup_close_page("ok", user_id, origin, None)
-        return HTMLResponse(content=html, media_type="text/html")
-    except Exception as e:
-        html = _popup_close_page("error", user_id, origin, f"OAuth exchange failed: {e}")
-        return HTMLResponse(content=html, media_type="text/html", status_code=400)
-
-    # Redirect back to the app (optional). For API, just return success
-    return JSONResponse({"status": "ok", "user_id": user_id})
-
-
-@router.post("/open-file")
-async def open_file(payload: Dict[str, Any], user=Depends(get_current_user)):
-    """Read, analyze, and optionally edit a specific file by fileId.
-
-    Request JSON:
-    - fileId: str (required)
-    - find: str (optional) text to search for
-    - replace: str (optional) replacement text
-    - replace_all: bool (optional, default false)
+@router.post("/set-master-resume-from-drive")
+async def set_master_resume_from_drive(payload: Dict[str, Any], user=Depends(get_current_user)):
     """
-    file_id = payload.get("fileId")
-    if not file_id or not isinstance(file_id, str):
+    Copies a user-selected file to the server's drive to be used as a master resume.
+    This will replace any existing master resume (text or GDrive).
+    """
+    user_file_id = payload.get("fileId")
+    if not user_file_id:
         raise HTTPException(status_code=400, detail="fileId is required")
 
-    creds = load_credentials(str(user.id))
-    drive = build_drive_service(creds)
-    docs = build_docs_service(creds)
+    user_id = str(user.id)
+    supabase = get_supabase()
 
-    content = export_google_doc_text(drive, file_id)
-    #analysis = basic_analyze_text(content)
+    # 1. Build services for both user and server
+    user_creds = load_credentials(user_id)
+    user_drive = build_drive_service(user_creds)
+    server_drive = build_server_drive_service()
 
-    result: Dict[str, Any] = {
-        "fileId": file_id,
-        #"analysis": analysis,
-        "content": content,  # contents of the file
+    # 2. Get original file metadata from user's drive
+    try:
+        original_file_meta = user_drive.files().get(fileId=user_file_id, fields="name").execute()
+        original_file_name = original_file_meta.get("name", "untitled")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Could not access user's file: {e}")
+
+    # 3. Check for and delete any old GDrive master resume for this user
+    try:
+        profile_res = supabase.table("profiles").select("gdrive_master_resume_id").eq("id", user_id).single().execute()
+        if profile_res.data and profile_res.data.get("gdrive_master_resume_id"):
+            old_file_id = profile_res.data["gdrive_master_resume_id"]
+            try:
+                server_drive.files().delete(fileId=old_file_id).execute()
+            except Exception as e:
+                # Log this error but don't block the flow
+                print(f"Warning: Failed to delete old master resume file {old_file_id} for user {user_id}: {e}")
+    except Exception as e:
+        print(f"Info: Could not check for old master resume for user {user_id}: {e}")
+
+
+    # 4. Copy the file to the server's drive
+    new_file_name = f"{user.email}-template-{original_file_name}"
+    copied_file_body = {"name": new_file_name}
+    
+    server_file_id = None
+    try:
+        # We need to use the user's drive service to access the source file
+        # but the request is executed by the server's drive service to create the copy in its own space.
+        # This requires a bit of a workaround. The `copy` method on the service account's
+        # drive instance needs permission on the user's file.
+        # A simpler approach is to download content and re-upload.
+
+        # Let's get the content from the user's drive first.
+        content_bytes = user_drive.files().get_media(fileId=user_file_id).execute()
+
+        # Now create a new file in the server's drive with that content.
+        from io import BytesIO
+        from googleapiclient.http import MediaIoBaseUpload
+
+        file_metadata = {'name': new_file_name}
+        media = MediaIoBaseUpload(BytesIO(content_bytes), mimetype='application/vnd.google-apps.document', resumable=True)
+        
+        # It seems we can't just upload raw bytes to create a Google Doc.
+        # Let's try copying and granting permissions. This is complex.
+        
+        # Alternative: Copy it, which makes the service account the owner.
+        # The service account needs to be granted permission on the source file first.
+        # This is not practical.
+
+        # Let's stick to the original idea of copying, but we need to handle permissions.
+        # The easiest way is if the service account has broad access, but that's not ideal.
+
+        # Let's try the copy method again, it should work if the file is public or the service account has access.
+        # For the `copy` to work, the user must have shared the file with the service account's email address.
+        # This is a big UX hurdle.
+
+        # Let's pivot: The user's credentials are used to create a copy, then we transfer ownership to the service account.
+        # This also has permission complexities.
+
+        # The most robust flow without major UX changes:
+        # 1. User auths (as is).
+        # 2. Server (with user creds) reads the file content.
+        # 3. Server (with service account creds) creates a NEW file with that content.
+
+        # The `export_google_doc_text` already gets the text content. Let's use that.
+        # We will lose formatting, but it's a start.
+        text_content = export_google_doc_text(user_drive, user_file_id)
+
+        # Create a new Google Doc on the server's drive with this text.
+        docs_service = build_server_docs_service()
+        doc_body = {
+            'title': new_file_name,
+        }
+        new_doc = docs_service.documents().create(body=doc_body).execute()
+        server_file_id = new_doc['documentId']
+
+        # Now, insert the text content.
+        docs_service.documents().batchUpdate(
+            documentId=server_file_id,
+            body={'requests': [{'insertText': {'location': {'index': 1}, 'text': text_content}}]
+        }).execute()
+
+    except Exception as e:
+        if server_file_id:
+            try:
+                server_drive.files().delete(fileId=server_file_id).execute()
+            except Exception as cleanup_error:
+                print(f"Failed to cleanup partially created file {server_file_id}: {cleanup_error}")
+        raise HTTPException(status_code=500, detail=f"Failed to copy file to server drive: {e}")
+
+    # 5. Update the user's profile in Supabase
+    try:
+        supabase.table("profiles").update({
+            "gdrive_master_resume_id": server_file_id,
+            "base_resume_text": None  # Clear out the text-based resume
+        }).eq("id", user_id).execute()
+    except Exception as e:
+        # Rollback by deleting the created file
+        server_drive.files().delete(fileId=server_file_id).execute()
+        raise HTTPException(status_code=500, detail=f"Failed to update profile with new resume file: {e}")
+
+    # 6. Return the content of the new file
+    return {
+        "message": "Master resume created successfully from Google Drive file.",
+        "gdrive_master_resume_id": server_file_id,
+        "content": text_content,
     }
-
-    find_text = payload.get("find")
-    replace_text = payload.get("replace")
-    replace_all = bool(payload.get("replace_all", False))
-
-    if isinstance(find_text, str) and find_text and isinstance(replace_text, str):
-        update_res = update_file_content(
-            drive,
-            docs,
-            file_id,
-            find_text,
-            replace_text,
-            replace_all=replace_all,
-        )
-        result["update"] = update_res
-
-    return result
 
 
 @router.get("/auth-status")
