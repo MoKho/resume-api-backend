@@ -57,6 +57,15 @@ model_mapping = {
         {"provider": "cerebras", "model": "llama3.1-8b"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ],
+    "resume-professional-summary-extractor": [
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+
+        {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
+        {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
+        {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        {"provider": "cerebras", "model": "llama3.1-8b"},
+        {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ],
     "resume-summary-extractor": [
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
 
@@ -337,6 +346,23 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
         log.error(f"An error occurred during resume parsing: {e}")
         raise
 
+def extract_professional_summary(resume_text: str) -> str:
+    log = bind_logger(logger, {"agent_name": "extract_professional_summary"})
+
+    log.info("LLM Service: Extracting professional summary from resume...")
+    try:
+        response_str = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='resume-professional-summary-extractor',
+            system_prompt=system_prompts.resume_professional_summary_extractor_agent_system_prompt,
+            user_prompt=resume_text
+        )
+        log.info("Successfully extracted professional summary")
+        return response_str
+
+    except Exception as e:
+        log.error(f"An error occurred during professional summary extraction: {e}")
+        raise
 
 def extract_job_qualifications(summarized_job_description: str) -> str:
     """
@@ -359,3 +385,5 @@ def extract_job_qualifications(summarized_job_description: str) -> str:
     except Exception as e:
         log.error(f"An error occurred during qualifications extraction: {e}")
         raise
+
+
