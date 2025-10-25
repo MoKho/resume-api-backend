@@ -1,5 +1,6 @@
 # app/routers/profiles.py
 
+
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
@@ -24,10 +25,13 @@ router = APIRouter(
     tags=["profiles"]
 )
 
+logger = get_logger(__name__)
+log = bind_logger(logger, {"agent_name": "profiles_router"})
 supabase_url = os.environ.get("SUPABASE_URL") or ""
+log.info(f"Supabase URL: {supabase_url}")
 supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY") or ""
 supabase: Client = create_client(supabase_url, supabase_service_key)
-logger = get_logger(__name__)
+
 
 @router.get("/me", response_model=ProfileResponse)
 async def get_my_profile(user=Depends(get_current_user)):
@@ -107,13 +111,25 @@ async def process_resume(
     This action will DELETE all previous job histories for the user.
     """
     user_id = str(user.id)
-    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
+    log = bind_logger(logger, {"agent_name": "process-resume", "user_id": user_id})
     try:
         # First, delete any existing job histories to prevent duplicates
         supabase.table("job_histories").delete().eq("user_id", user_id).execute()
 
         # Call the LLM to parse the resume
-        parsed_jobs = llm_service.parse_resume_to_json(resume_data.resume_text)
+        try:
+            professional_summary = llm_service.extract_professional_summary(resume_data.resume_text)
+            log.info("Extracted professional summary")
+            log.info(professional_summary)
+        except Exception as e:
+            log.error("Error extracting professional summary: %s", str(e))
+            raise HTTPException(status_code=500, detail="Error extracting professional summary")
+
+        try:
+            parsed_jobs = llm_service.parse_resume_to_json(resume_data.resume_text)
+        except Exception as e:
+            log.error("Error extracting job histories from resume: %s", str(e))
+            raise HTTPException(status_code=500, detail="Error extracting job histories from resume")
 
         # --- THIS IS THE NEW MAPPING LOGIC ---
         # Transform the LLM output to match our database schema.
@@ -129,14 +145,19 @@ async def process_resume(
         # Bulk insert the new, correctly formatted job histories
         inserted_data = supabase.table("job_histories").insert(jobs_to_insert).execute().data
 
+        # Update the professional summary in the user's profile
+        supabase.table("profiles").update({"base_summary_text": professional_summary}).eq("id", user_id).execute()
+
         # Also, update the base_resume_text in the user's profile
         supabase.table("profiles").update({"base_resume_text": resume_data.resume_text}).eq("id", user_id).execute()
 
         log.info("Inserted parsed job histories", extra={"inserted_count": len(inserted_data) if inserted_data else 0})
         return inserted_data
     except ValueError as e:
+        log.error("ValueError during resume processing: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        log.error("Unexpected error during resume processing: %s", str(e))
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
     
     
