@@ -24,6 +24,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 from supabase import create_client, Client
 
+from app.logging_config import get_logger, bind_logger
+from zoneinfo import ZoneInfo
+logger = get_logger(__name__)
+log = bind_logger(logger)
+log.info("started")
 
 # -------- Supabase client (service key) - lazy to avoid startup failures --------
 def get_supabase() -> Client:
@@ -118,6 +123,7 @@ def save_credentials(user_id: str, credentials_json: Dict[str, Any]) -> None:
             on_conflict="user_id",
         ).execute()
     except Exception as e:
+        log.error(f"Failed to persist credentials for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to persist credentials: {e}")
 
 
@@ -153,6 +159,7 @@ def load_credentials(user_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        log.error(f"Failed to load credentials for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load credentials: {e}")
 
 

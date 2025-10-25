@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import os
+# Allow HTTP in development for oauthlib (avoid in production)
+if os.getenv("ENV", "development") != "production":
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
 from typing import Any, Dict, Optional
 import json
 
@@ -20,16 +24,19 @@ from app.services.google_drive_service import (
     update_file_content,
     basic_analyze_text,
 )
+from app.logging_config import get_logger, bind_logger
 
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["google-drive"])
 
-def _popup_close_page(status: str, user_id: str | None, origin: str, message: str | None = None) -> str:
+def _popup_close_page(status: str, user_id: str | None, origin: str, error: str | None = None, retryable: bool = False) -> str:
     # Very small page that notifies the opener and closes itself.
     safe_status = (status or "error").replace('"', "")
     safe_user = (user_id or "").replace('"', "")
     safe_origin = (origin or "").replace('"', "")
-    safe_msg = (message or "").replace('"', "")
+    safe_err = (error or "").replace('"', "")
+    retry_flag = "true" if retryable else "false"
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Google Drive Auth</title></head>
 <body>
@@ -39,7 +46,8 @@ def _popup_close_page(status: str, user_id: str | None, origin: str, message: st
     type: "google-drive-auth",
     status: "{safe_status}",
     userId: "{safe_user}",
-    message: "{safe_msg}"
+    error: "{safe_err}",
+    retryable: {retry_flag}
   }};
   try {{
     if (window.opener && "{safe_origin}") {{
@@ -69,7 +77,7 @@ async def authorize(request: Request, user=Depends(get_current_user)):
 
     # Determine the frontend origin to notify after auth
     # Prefer the Origin header; fallback to env FRONTEND_ORIGIN.
-    frontend_origin = request.headers.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
+    frontend_origin = request.headers.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 
     # Encode user and origin in state to resume after callback
     state = sign_state({"user_id": str(user.id), "origin": frontend_origin})
@@ -90,11 +98,19 @@ async def oauth2callback(request: Request, state: str = Query(...), code: str = 
         "http://localhost:8000/google-drive/oauth2callback",
     )
 
-    data = verify_state(state)
+    # Log and handle invalid/expired state
+    try:
+        data = verify_state(state)
+    except HTTPException as e:
+        logger.error("OAuth state verification failed", extra={"detail": e.detail})
+        # invalid signature / expired = retryable (frontend should fetch a fresh /authorize)
+        html = _popup_close_page("error", None, os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173"), str(e.detail), True)
+        return HTMLResponse(content=html, media_type="text/html", status_code=400)
+
     user_id = data.get("user_id")
-    origin = data.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
+    origin = data.get("origin") or os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
     if not user_id:
-        html = _popup_close_page("error", None, origin, "Missing user_id in state")
+        html = _popup_close_page("error", None, origin, "Missing user_id in state", False)
         return HTMLResponse(content=html, media_type="text/html", status_code=400)
 
     try:
@@ -105,7 +121,9 @@ async def oauth2callback(request: Request, state: str = Query(...), code: str = 
         html = _popup_close_page("ok", user_id, origin, None)
         return HTMLResponse(content=html, media_type="text/html")
     except Exception as e:
-        html = _popup_close_page("error", user_id, origin, f"OAuth exchange failed: {e}")
+        logger.exception("OAuth token exchange failed", extra={"user_id": user_id, "redirect_uri": redirect_uri})
+        # token exchange errors are generally non-retryable from the frontend; surface message
+        html = _popup_close_page("error", user_id, origin, f"OAuth exchange failed: {e}", False)
         return HTMLResponse(content=html, media_type="text/html", status_code=400)
 
     # Redirect back to the app (optional). For API, just return success
