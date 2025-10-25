@@ -208,7 +208,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
               "\n</current_resume>"
     )
     return call_llm_provider(
-        provider_name='groq',
+        provider_name='gemini',
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,
@@ -222,7 +222,7 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
     custom_settings = {"reasoning_effort": "high"}
     user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
-        provider_name='groq',
+        provider_name='gemini',
         workload_difficulty='professional_summary_rewrite_agent',
         system_prompt=system_prompts.professional_summary_rewriter_agent_system_prompt,
         user_prompt=user_prompt,
