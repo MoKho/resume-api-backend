@@ -36,7 +36,7 @@ model_mapping = {
         {"provider": "gemini", "model": "models/gemini-2.5-pro"}
     ],
     "resume-rewrite-agent": [
-        {"provider": "groq", "model": "openai/gpt-oss-120b"},
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "cerebras", "model": "gpt-oss-120b"},
         {"provider":"sambanova", "model": "DeepSeek-V3.1-Terminus"},
         {"provider":"sambanova", "model": "gpt-oss-120b"},
@@ -206,18 +206,25 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
     log.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
     custom_settings = {"reasoning_effort": "high"}
-    prompt = (f"<JobDescription>\n\n" +
-              summarized_job_description +
-              f"\n\n</JobDescription>" +
-              f"\n\n<background>\n" +
-              job_history_background +
-              "\n</background>" +
-              "\n\n<current_resume>\n" +
-                current_resume +
-              "\n</current_resume>"
-    )
+    prompt_parts = [
+        "<JobDescription>",
+        summarized_job_description,
+        "</JobDescription>"
+    ]
+    if job_history_background and job_history_background.strip():
+        prompt_parts.extend([
+            "<Background>",
+            job_history_background,
+            "</Background>"
+        ])
+    prompt_parts.extend([
+        "<CurrentResume>",
+        current_resume,
+        "</CurrentResume>"
+    ])
+    prompt = "\n\n".join(prompt_parts)
     return call_llm_provider(
-        provider_name='gemini',
+        provider_name='groq',
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,

@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 # Request body for creating a new application
@@ -15,6 +15,15 @@ class ApplicationResponse(BaseModel):
     status: str
     target_job_description: str
     final_resume_text: Optional[str] = None
+    # Consolidated JSON of the specific resume sections the workflow updated.
+    # Example shape:
+    # {
+    #   "professional_summary": "...",
+    #   "work_history": [
+    #       {"id": 123, "job_title": "...", "company_name": "...", "text": "..."}
+    #   ]
+    # }
+    updated_fields: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:

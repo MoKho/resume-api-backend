@@ -5,7 +5,7 @@ from app.services.resume_service import supabase, run_tailoring_process
 from app.logging_config import get_logger, bind_logger
 
 logger = get_logger(__name__)
-POLL_INTERVAL = 5  # seconds
+POLL_INTERVAL = 0.1  # seconds
 
 
 def process_pending_applications():
