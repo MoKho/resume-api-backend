@@ -114,3 +114,24 @@ class ProfileResponse(BaseModel):
         orm_mode = True
 
 
+# --- Google Drive Open-File Schemas ---
+
+class GoogleDriveFileRef(BaseModel):
+    """Represents a minimal Drive file reference."""
+    fileId: str
+    mimeType: Optional[str] = None
+    name: Optional[str] = None
+
+
+class GoogleDriveOpenFileRequest(BaseModel):
+    """Request to open a file from user's Drive and copy it to server's Drive."""
+    fileId: str
+
+
+class GoogleDriveOpenFileResponse(BaseModel):
+    """Response containing source/destination refs and extracted content."""
+    source: GoogleDriveFileRef
+    destination: GoogleDriveFileRef
+    content: str
+
+

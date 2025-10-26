@@ -5,6 +5,8 @@ Notes:
 - Uses Supabase to persist per-user OAuth credentials in table `google_drive_tokens`.
 - Performs OAuth web server flow using google_auth_oauthlib.flow.Flow.
 - Scopes limited to drive.file (files created/selected by the app/user).
+- Adds support for a server-owned Google Drive using a service account for
+    storing permanent copies of user-selected files.
 - Lazy imports are used so the app can boot without Google libs installed.
 """
 from __future__ import annotations
@@ -13,11 +15,22 @@ import base64
 import hashlib
 import hmac
 import io
-import json
+from dataclasses import dataclass
 import os
 import time
+import json
 import uuid
-from dataclasses import dataclass
+"""
+Google Drive OAuth and file operations service (lazy-imported deps).
+
+Notes:
+- Uses Supabase to persist per-user OAuth credentials in table `google_drive_tokens`.
+- Performs OAuth web server flow using google_auth_oauthlib.flow.Flow.
+- Scopes limited to drive.file (files created/selected by the app/user).
+- Adds support for a server-owned Google Drive using a service account for
+    storing permanent copies of user-selected files.
+- Lazy imports are used so the app can boot without Google libs installed.
+"""
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,12 +55,23 @@ def get_supabase() -> Client:
 GOOGLE_CLIENT_SECRET_FILENAME = "client_secret_oauth_apps.googleusercontent.com.json"
 GOOGLE_CLIENT_SECRET_PATH = str(Path(__file__).resolve().parent.parent / GOOGLE_CLIENT_SECRET_FILENAME)
 
+
+# Service account json for server-owned Drive
+SERVER_SERVICE_ACCOUNT_FILENAME = "server-client-0961468170-bd62942bd1ac.com.json"
+SERVER_SERVICE_ACCOUNT_PATH = str(Path(__file__).resolve().parent.parent / SERVER_SERVICE_ACCOUNT_FILENAME)
+# Shared Drive folder where server should store master resumes. Can be overridden via env.
+SHARED_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_SHARED_DRIVE_FOLDER_ID", "0ABNYGt-LYK-JUk9PVA")
 DRIVE_SCOPES = [
     # drive.file only gives access to files created or explicitly opened by the app.
     # Add readonly so the app can read user files the user has access to.
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+
+
+def _lazy_import_media_download():
+        from googleapiclient.http import MediaIoBaseDownload  # type: ignore
+        return MediaIoBaseDownload
 
 OAUTH_STATE_SECRET = os.environ.get("OAUTH_STATE_SECRET", "dev-insecure-state-secret")
 
@@ -75,6 +99,11 @@ def _lazy_import_media_upload():
 def _lazy_import_credentials():
     from google.oauth2.credentials import Credentials  # type: ignore
     return Credentials
+
+
+def _lazy_import_service_account_credentials():
+    from google.oauth2.service_account import Credentials as SACredentials  # type: ignore
+    return SACredentials
 
 
 def sign_state(payload: Dict[str, Any], ttl_seconds: int = 600) -> str:
@@ -187,19 +216,170 @@ def build_docs_service(credentials) -> Any:
     return build("docs", "v1", credentials=credentials)
 
 
+# ---------------- Server (service account) Drive helpers ----------------
+
+# Full Drive scope for the server so it can create, copy, and convert files in its own Drive.
+SERVER_DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+def get_service_account_credentials():
+    """Load service account credentials for the server-owned Drive.
+
+    The service account file path can be overridden with env GOOGLE_SERVER_SERVICE_ACCOUNT_PATH.
+    """
+    SACredentials = _lazy_import_service_account_credentials()
+    json_path = os.environ.get("GOOGLE_SERVER_SERVICE_ACCOUNT_PATH", SERVER_SERVICE_ACCOUNT_PATH)
+    try:
+        creds = SACredentials.from_service_account_file(json_path, scopes=SERVER_DRIVE_SCOPES)
+        return creds
+    except Exception as e:
+        log.error(f"Failed to load service account credentials: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load server Drive credentials: {e}")
+
+def build_server_drive_service() -> Any:
+    """Build a Drive service client authenticated as the server's service account."""
+    creds = get_service_account_credentials()
+    return build_drive_service(creds)
+
+def copy_file_to_server_drive(server_drive_service, source_file_id: str, new_name: str) -> Dict[str, Any]:
+    """Copy a file the service account can access into the server's Drive.
+
+    Returns the created file's JSON (contains at least id and name).
+    """
+    try:
+        # Copy into the shared drive folder and mark support for shared drives
+        body = {"name": new_name, "parents": [SHARED_DRIVE_FOLDER_ID]}
+        # supportsAllDrives allows copying from shared drives if applicable
+        new_file = (
+            server_drive_service.files()
+            .copy(fileId=source_file_id, body=body, supportsAllDrives=True, fields="id, name, mimeType, parents")
+            .execute()
+        )
+        return new_file
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to copy file to server Drive: {e}")
+
+
+def download_file_bytes(drive_service, file_id: str) -> bytes:
+    """Download raw bytes of a file (non-Google types) from Drive."""
+    MediaIoBaseDownload = _lazy_import_media_download()
+    import io
+
+    try:
+        # include supportsAllDrives=True in case the file lives on a shared drive
+        request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        return fh.getvalue()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download file: {e}")
+
+
+def get_file_metadata(drive_service, file_id: str, fields: str = "id, name, mimeType") -> Dict[str, Any]:
+    try:
+        # Always allow reading metadata from shared drives as well
+        return drive_service.files().get(fileId=file_id, fields=fields, supportsAllDrives=True).execute()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Failed to read file metadata: {e}")
+
+
+def upload_bytes_as_google_doc(server_drive_service, content: bytes, source_mime: str, name: str) -> Dict[str, Any]:
+    """Upload given bytes to the server Drive and convert into a Google Doc.
+
+    The file is created with mimeType=application/vnd.google-apps.document to trigger conversion.
+    """
+    MediaIoBaseUpload = _lazy_import_media_upload()
+    import io
+
+    try:
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=source_mime, resumable=False)
+        # Place the created Google Doc inside the designated Shared Drive folder so the
+        # server's service account (content manager) owns/manages the stored resume.
+        body = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.document",
+            "parents": [SHARED_DRIVE_FOLDER_ID],
+        }
+        created = (
+            server_drive_service.files()
+            .create(body=body, media_body=media, fields="id, name, mimeType", supportsAllDrives=True)
+            .execute()
+        )
+        return created
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload and convert to Google Doc: {e}")
+
+
+def upload_bytes_raw(server_drive_service, content: bytes, source_mime: str, name: str) -> Dict[str, Any]:
+    """Upload given bytes to the server Drive without conversion (keeps original mime)."""
+    MediaIoBaseUpload = _lazy_import_media_upload()
+    import io
+
+    try:
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=source_mime, resumable=False)
+        # Upload into the shared drive folder to avoid quota and ownership issues.
+        body = {"name": name, "parents": [SHARED_DRIVE_FOLDER_ID]}
+        created = (
+            server_drive_service.files()
+            .create(body=body, media_body=media, fields="id, name, mimeType", supportsAllDrives=True)
+            .execute()
+        )
+        return created
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file to server Drive: {e}")
+
+
+def upsert_profile_master_resume_id(user_id: str, dest_file_id: str) -> None:
+    """Write the destination Google Drive fileId into profiles.gdrive_master_resume_id."""
+    try:
+        (
+            get_supabase()
+            .table("profiles")
+            .upsert({"id": str(user_id), "gdrive_master_resume_id": str(dest_file_id)})
+            .execute()
+        )
+    except Exception as e:
+        log.error(f"Failed to update profile gdrive_master_resume_id for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {e}")
+
+
+def delete_file(drive_service, file_id: str) -> None:
+    """Delete a file from Drive (supports shared drives)."""
+    try:
+        drive_service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+    except Exception as e:
+        # Not fatal for our flow; log a warning-like error
+        log.error(f"Failed to delete temporary file {file_id}: {e}")
+
+
 def export_google_doc_text(drive_service, file_id: str) -> str:
     try:
-        # First check t
-        # he file metadata to determine how to fetch it.
-        meta = drive_service.files().get(fileId=file_id, fields="mimeType").execute()
+        # First check the file metadata to determine how to fetch it.
+        meta = drive_service.files().get(fileId=file_id, fields="mimeType", supportsAllDrives=True).execute()
         mime = meta.get("mimeType", "")
         # Google Docs -> use export
         if mime == "application/vnd.google-apps.document":
-            data = drive_service.files().export(fileId=file_id, mimeType="text/plain").execute()
+            try:
+                # Preferred: include supportsAllDrives for shared-drive support
+                data = drive_service.files().export(fileId=file_id, mimeType="text/plain", supportsAllDrives=True).execute()
+            except TypeError:
+                # Some googleapiclient versions don't accept supportsAllDrives on export()
+                # Retry without the kwarg (best-effort fallback).
+                log.info("export() does not accept supportsAllDrives param, retrying without it", extra={"file_id": file_id})
+                data = drive_service.files().export(fileId=file_id, mimeType="text/plain").execute()
         else:
-            # Non-Google files -> download media
-            # alt="media" should return bytes for binary/text files.
-            data = drive_service.files().get(fileId=file_id, alt="media").execute()
+            # Non-Google files -> download media. alt="media" returns bytes for binary/text files.
+            try:
+                data = drive_service.files().get(fileId=file_id, alt="media", supportsAllDrives=True).execute()
+            except TypeError:
+                # Fallback if the client doesn't accept supportsAllDrives here (rare)
+                log.info("get(..., alt='media') does not accept supportsAllDrives param, retrying without it", extra={"file_id": file_id})
+                data = drive_service.files().get(fileId=file_id, alt="media").execute()
 
         if isinstance(data, bytes):
             return data.decode("utf-8", errors="ignore")
@@ -213,6 +393,28 @@ def export_google_doc_text(drive_service, file_id: str) -> str:
         except Exception:
             file_hint = f" fileId={file_id}"
         raise HTTPException(status_code=404, detail=f"Unable to export file content:{file_hint}: {e}")
+
+
+def export_google_doc_bytes(drive_service, file_id: str, export_mime: str) -> bytes:
+    """Export a Google Doc to the specified mime type and return raw bytes."""
+    try:
+        try:
+            # Preferred: include supportsAllDrives for shared-drive support
+            data = drive_service.files().export(fileId=file_id, mimeType=export_mime, supportsAllDrives=True).execute()
+        except TypeError:
+            # Some googleapiclient versions don't accept supportsAllDrives on export()
+            # Retry without the kwarg (best-effort fallback).
+            log.info("export() does not accept supportsAllDrives param, retrying without it", extra={"file_id": file_id, "export_mime": export_mime})
+            data = drive_service.files().export(fileId=file_id, mimeType=export_mime).execute()
+
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, str):
+            return data.encode("utf-8")
+        return b""
+    except Exception as e:
+        # Bubble a clearer message so the router can log context
+        raise HTTPException(status_code=500, detail=f"Failed to export Google Doc as {export_mime}: {e}")
 
 
 def _extract_text_with_index_map(doc: Dict[str, Any]) -> Tuple[str, List[int]]:
@@ -279,7 +481,7 @@ def update_file_content(
     try:
         meta = (
             drive_service.files()
-            .get(fileId=file_id, fields="id, name, mimeType")
+            .get(fileId=file_id, fields="id, name, mimeType", supportsAllDrives=True)
             .execute()
         )
         mime = meta.get("mimeType")
@@ -290,7 +492,8 @@ def update_file_content(
         raise HTTPException(status_code=400, detail="Search/replace is only supported for Google Docs")
 
     try:
-        doc = docs_service.documents().get(documentId=file_id).execute()
+        # When operating on docs stored on shared drives, include support flag
+        doc = docs_service.documents().get(documentId=file_id, supportsAllDrives=True).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
 
@@ -310,7 +513,7 @@ def update_file_content(
             ]
             result = (
                 docs_service.documents()
-                .batchUpdate(documentId=file_id, body={"requests": requests})
+                .batchUpdate(documentId=file_id, body={"requests": requests}, supportsAllDrives=True)
                 .execute()
             )
             return {"updated": True, "matches": len(occurrences), "method": "replaceAllText", "result": result}
@@ -335,7 +538,7 @@ def update_file_content(
         ]
         result = (
             docs_service.documents()
-            .batchUpdate(documentId=file_id, body={"requests": requests})
+            .batchUpdate(documentId=file_id, body={"requests": requests}, supportsAllDrives=True)
             .execute()
         )
         return {"updated": True, "matches": 1, "method": "replaceNamedRangeContent", "result": result}
