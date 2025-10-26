@@ -106,7 +106,9 @@ class JobHistoryResponse(BaseModel):
     user_id: str
     company_name: Optional[str] = None
     job_title: Optional[str] = None
-    achievements_list: Optional[List[str]] = None
+    # Entire achievements/responsibilities block as a single string exactly as
+    # it appears in the resume (line breaks preserved).
+    achievements: Optional[str] = None
     detailed_background: Optional[str] = None
     is_default_rewrite: Optional[bool] = None  
 

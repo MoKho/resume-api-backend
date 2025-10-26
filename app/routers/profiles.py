@@ -139,7 +139,8 @@ async def process_resume(
                 'user_id': user_id,
                 'company_name': job.get('history_company_name'),
                 'job_title': job.get('history_job_title'),
-                'achievements_list': job.get('history_job_achievements', [])
+                # Store the entire original achievements/responsibilities block as a single string
+                'achievements': job.get('history_job_achievements') or ""
             })
 
         # Bulk insert the new, correctly formatted job histories

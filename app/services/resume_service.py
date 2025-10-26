@@ -52,9 +52,7 @@ def run_tailoring_process(application_id: int, user_id: str):
 
             log.info("Rewriting job history", extra={"history_id": history['job_title']})
 
-            current_resume_context = history.get('achievements_list', '')
-            #log.info("type of achievements_list: %s", type(current_resume_context))
-            current_resume = "\n".join(f'- {item}' for item in current_resume_context)
+            current_resume = history.get('achievements', '') or ""
             #log.info(f'\n\n\n\n\n\n\n\n\nType:  {type(current_resume)} \n and preview of current resume context:{current_resume[:200]}')
             rewritten_text = llm_service.rewrite_job_history(
                 job_history_background=history['detailed_background'],
@@ -70,21 +68,18 @@ def run_tailoring_process(application_id: int, user_id: str):
         for history in job_histories_to_rewrite:
             history_id = history['id']
             log.info("Processing replacement for history", extra={"history_id": history_id})
-            #log.info("original history: %s", history.get('achievements_list'))
+            #log.info("original history: %s", history.get('achievements'))
             #log.info("rewritten history: %s", rewritten_histories.get(history_id))
             # Check if this history was successfully rewritten in the previous step
             if history_id not in rewritten_histories:
                 log.warning("No rewritten text found for history; skipping replacement", extra={"history_id": history_id})
                 continue
 
-            # Reconstruct the original block of achievement text from the stored list.
-            # This relies on the parsing LLM splitting achievements by newlines.
-            original_achievements = history.get('achievements_list')
-            if not original_achievements:
-                log.warning("Skipping replacement as no original achievements list", extra={"history_id": history_id})
+            # Get the original block of achievement text.
+            original_achievements_block = history.get('achievements')
+            if not original_achievements_block:
+                log.warning("Skipping replacement as no original achievements block", extra={"history_id": history_id})
                 continue
-            
-            original_achievements_block = "\n".join(original_achievements)
             
             # Get the new, AI-generated text.
             new_rewritten_text = rewritten_histories[history_id]

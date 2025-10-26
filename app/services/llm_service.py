@@ -344,8 +344,24 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
             system_prompt=system_prompts.resume_history_company_extractor_agent_system_prompt,
             user_prompt=resume_text
         )
-        # The LLM returns a string, we need to parse it into a Python list
-        return json.loads(response_str)
+        # The LLM returns a JSON string representing a list[object]. Each object contains
+        # history_job_title, history_company_name, and history_job_achievements (string).
+        # Be tolerant of accidental surrounding text or code fences.
+        text = response_str.strip()
+        # Strip common markdown fences
+        if text.startswith("```"):
+            # remove first fence line and trailing fence
+            text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
+        # Attempt a direct parse; if it fails, try to extract the first JSON array
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            start = text.find('[')
+            end = text.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                candidate = text[start:end+1]
+                return json.loads(candidate)
+            raise
     except json.JSONDecodeError as e:
         log.error(f"Failed to decode LLM response into JSON: {e}")
         raise ValueError("The AI failed to return valid JSON. Please try again.")

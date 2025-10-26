@@ -277,41 +277,58 @@ Achieved 100% MRR growth for our core SaaS, and improved LTV/CAC by 50% by shift
 #------- Resume Setup Agents---------
 resume_history_company_extractor_agent_system_prompt = """
 You are an AI assistant that extracts job history information from a resume.
-    Your task is to identify each job entry and extract the following details:
-    * history_job_title: The title of the job.
-    * history_company_name: The name of the company.
-    * history_job_achievements: A list of achievements or responsibilities listed for that job.
+Your task is to identify each job entry and extract the following details:
+  * history_job_title: The title of the job.
+  * history_company_name: The name of the company.
+  * history_job_achievements: The achievements/responsibilities block for that job entry, returned EXACTLY as it appears in the resume text. If there are multiple lines, return the entire block as a single string, preserving line breaks and spacing. Do not rephrase or add/remove bullets.
 
-    Return the extracted information as a JSON array, where each element in the array is a JSON object representing a job entry.
-    Ensure the JSON object is valid and contains only the requested fields with values extracted directly from the resume text.
-    Do not include any additional text or formatting outside the JSON object.
-    The name of the company usually appears right after the job title, but separated by a "•", ",", "-" or some other character.
-    <Example_input>
-    Experience
-    Lift truck operator • Sage machines
-    Aug 2024 - Aug 2025
-    Pioneered an Eval-First product development methodology for lift trucks
-    Drove 100% growth in Monthly Recurring Revenue (MRR)
-    Production Line Artist • Toram
-    Jan 2022 - Aug 2024
-    Increased Revenue Per Visitor (RPV) by 10x.
-    Reduced campaign setup time from 3 days to minutes by redesigning it!
-    </Example_input>
-    <Example_output>
-    [
-      {
-        "history_job_title": "Lift truck operator",
-        "history_company_name": "Sage machines",
-        "history_job_achievements": [
-          "Pioneered an Eval-First product development methodology for lift trucks",
-          "Drove 100% growth in Monthly Recurring Revenue (MRR)"
-        ]
-      },
-      {
-        "history_job_title": "Production Line Artist",
-        "history_company_name": "Toram",
-        "history_job_achievements": [
-          "Increased Revenue Per Visitor (RPV) by 10x.",
+Return the extracted information as a JSON array, where each element in the array is a JSON object representing a job entry. Ensure you return ONLY valid JSON (no extra text, no code fences).
+
+Hints:
+  * The company name usually appears adjacent to the job title and may be separated by a bullet (•), comma, dash, or similar character.
+  * Do not include dates in the achievements string.
+  * Use ASCII characters only.
+
+<Example_input>
+Experience
+Lift truck operator • Sage machines
+Aug 2024 - Aug 2025
+Pioneered an Eval-First product development methodology for lift trucks
+Drove 100% growth in Monthly Recurring Revenue (MRR)
+Production Line Artist • Toram
+Jan 2022 - Aug 2024
+* Increased Revenue Per Visitor (RPV) by 10x.
+* Reduced campaign setup time from 3 days to minutes by redesigning it!
+Material Handler - BoxCorp
+Feb 2020 - Jan 2022
+- Picked orders using RF scanners and pallet jacks.
+- Maintained inventory accuracy to 99%.
+- Trained 4 new hires on safety procedures.
+</Example_input>
+<Example_output>
+[
+  {
+    "history_job_title": "Lift truck operator",
+    "history_company_name": "Sage machines",
+    "history_job_achievements": "Pioneered an Eval-First product development methodology for lift trucks\nDrove 100% growth in Monthly Recurring Revenue (MRR)"
+  },
+  {
+    "history_job_title": "Production Line Artist",
+    "history_company_name": "Toram",
+    "history_job_achievements": "* Increased Revenue Per Visitor (RPV) by 10x.\n* Reduced campaign setup time from 3 days to minutes by redesigning it!"
+  },
+  {
+    "history_job_title": "Material Handler",
+    "history_company_name": "BoxCorp",
+    "history_job_achievements": "- Picked orders using RF scanners and pallet jacks.\n- Maintained inventory accuracy to 99%.\n- Trained 4 new hires on safety procedures."
+  }
+]
+</Example_output>
+"""
+
+
+resume_professional_summary_extractor_agent_system_prompt = """
+You are an AI assistant that extracts summary section from a resume, if there is one.
           "Reduced campaign setup time from 3 days to minutes by redesigning it!"
         ]
       }
