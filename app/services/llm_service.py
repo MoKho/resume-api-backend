@@ -30,13 +30,13 @@ provider_urls = {
 
 model_mapping = {
     "resume-match-agent": [
-        {"provider": "groq", "model": "openai/gpt-oss-120b"},
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "cerebras", "model": "gpt-oss-120b"},
         {"provider":"sambanova", "model": "gpt-oss-120b"},
         {"provider": "gemini", "model": "models/gemini-2.5-pro"}
     ],
     "resume-rewrite-agent": [
-        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "groq", "model": "openai/gpt-oss-120b"},
         {"provider": "cerebras", "model": "gpt-oss-120b"},
         {"provider":"sambanova", "model": "DeepSeek-V3.1-Terminus"},
         {"provider":"sambanova", "model": "gpt-oss-120b"},
@@ -50,18 +50,13 @@ model_mapping = {
     ],
     "resume-history-jobs-extractor": [
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
-
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
-        {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
-        {"provider": "groq", "model": "llama-3.1-8b-instant"},
         {"provider": "cerebras", "model": "llama3.1-8b"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ],
     "resume-professional-summary-extractor": [
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
-
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
-        {"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
         {"provider": "groq", "model": "llama-3.1-8b-instant"},
         {"provider": "cerebras", "model": "llama3.1-8b"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
@@ -78,10 +73,7 @@ model_mapping = {
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ],
     "job-description-extractor-agent": [
-        {"provider":"sambanova", "model": "gpt-oss-120b"},
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
-       # {"provider": "groq", "model": "llama-3.1-8b-instant"},
-        #{"provider": "groq", "model": "meta-llama/llama-4-scout-17b-16e-instruct"},
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ]
@@ -238,7 +230,7 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
     custom_settings = {"reasoning_effort": "high"}
     user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
-        provider_name='gemini',
+        provider_name='groq',
         workload_difficulty='professional_summary_rewrite_agent',
         system_prompt=system_prompts.professional_summary_rewriter_agent_system_prompt,
         user_prompt=user_prompt,
