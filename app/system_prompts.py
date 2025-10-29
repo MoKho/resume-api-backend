@@ -287,9 +287,10 @@ Return the extracted information as a JSON array, where each element in the arra
 Hints:
   * The company name usually appears adjacent to the job title and may be separated by a bullet (•), comma, dash, or similar character.
   * Do not include dates in the achievements string.
+  * Keep the structure of the achievements block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
   * Use ASCII characters only.
 
-<Example_input>
+<Example_input1>
 Experience
 Lift truck operator • Sage machines
 Aug 2024 - Aug 2025
@@ -297,15 +298,10 @@ Pioneered an Eval-First product development methodology for lift trucks
 Drove 100% growth in Monthly Recurring Revenue (MRR)
 Production Line Artist • Toram
 Jan 2022 - Aug 2024
-* Increased Revenue Per Visitor (RPV) by 10x.
-* Reduced campaign setup time from 3 days to minutes by redesigning it!
-Material Handler - BoxCorp
-Feb 2020 - Jan 2022
-- Picked orders using RF scanners and pallet jacks.
-- Maintained inventory accuracy to 99%.
-- Trained 4 new hires on safety procedures.
-</Example_input>
-<Example_output>
+Increased Revenue Per Visitor (RPV) by 10x.
+Reduced campaign setup time from 3 days to minutes by redesigning it!
+</Example_input1>
+<Example_output1>
 [
   {
     "history_job_title": "Lift truck operator",
@@ -315,7 +311,29 @@ Feb 2020 - Jan 2022
   {
     "history_job_title": "Production Line Artist",
     "history_company_name": "Toram",
-    "history_job_achievements": "* Increased Revenue Per Visitor (RPV) by 10x.\n* Reduced campaign setup time from 3 days to minutes by redesigning it!"
+    "history_job_achievements": "Increased Revenue Per Visitor (RPV) by 10x.\nReduced campaign setup time from 3 days to minutes by redesigning it!"
+  }
+]
+</Example_output1>
+
+<Example_input2>
+Professional History
+Lift truck operator • Sage machines
+Aug 2024 - Aug 2025
+- Pioneered an Eval-First product development methodology for lift trucks
+- Drove 100% growth in Monthly Recurring Revenue (MRR)
+Material Handler - BoxCorp
+Feb 2020 - Jan 2022
+- Picked orders using RF scanners and pallet jacks.
+- Maintained inventory accuracy to 99%.
+- Trained 4 new hires on safety procedures.
+</Example_input2>
+<Example_output2>
+[
+  {
+    "history_job_title": "Lift truck operator",
+    "history_company_name": "Sage machines",
+    "history_job_achievements": "- Pioneered an Eval-First product development methodology for lift trucks\n- Drove 100% growth in Monthly Recurring Revenue (MRR)"
   },
   {
     "history_job_title": "Material Handler",
@@ -323,7 +341,7 @@ Feb 2020 - Jan 2022
     "history_job_achievements": "- Picked orders using RF scanners and pallet jacks.\n- Maintained inventory accuracy to 99%.\n- Trained 4 new hires on safety procedures."
   }
 ]
-</Example_output>
+</Example_output1>
 """
 
 
