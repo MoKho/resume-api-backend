@@ -12,7 +12,7 @@ from app import system_prompts
 from app.logging_config import get_logger, bind_logger, configure_logging
 
 configure_logging()
-load_dotenv()
+load_dotenv(override=True)
 
 logger = get_logger(__name__)
 

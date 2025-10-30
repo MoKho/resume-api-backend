@@ -14,7 +14,7 @@ from app.utils.text_cleaning import normalize_to_ascii
 configure_logging()
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 logger = get_logger(__name__)
 # Bind a module-level LoggerAdapter so logs from this module include the agent name
