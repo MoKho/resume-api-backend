@@ -196,7 +196,6 @@ def run_tailoring_process(application_id: int, user_id: str):
             "final_resume_text": final_resume,
             "updated_fields": updated_fields,
             "status": "completed",
-            "gdrive_pdf_resume_id": gdrive_pdf_id,
             "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         }
         try:

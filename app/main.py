@@ -12,7 +12,8 @@ configure_logging()
 # Configure structured JSON logging early. Attempt to write to a rotating file
 # under /var/log/resume_api and fall back to console-only logging if that
 # directory cannot be created or is not writable by this process.
-LOG_DIR = "/var/log/resume_api"
+#LOG_DIR = "/var/log/resume_api"
+LOG_DIR = "./logs"
 LOG_FILE = os.path.join(LOG_DIR, "resume_api.log")
 
 def _ensure_log_dir(path: str) -> bool:

@@ -100,7 +100,7 @@ def configure_logging(level: int = logging.INFO, log_file: str | None = None) ->
         return
     handlers = []
 
-    if env in ("local", "development", "dev"):
+    if env in ("production", "local", "development", "dev"):
         # Log to both terminal and file
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(JsonFormatter())
