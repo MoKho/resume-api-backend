@@ -3,6 +3,7 @@
 import os
 import logging
 import json
+import datetime
 from openai import OpenAI, APIError
 from dotenv import load_dotenv
 from app import system_prompts
@@ -88,6 +89,7 @@ model_mapping = {
 # --- Core LLM Caller Function ---
 
 def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None):
+    begin_time = datetime.datetime.now()
     log = bind_logger(logger, {"agent_name": "call llm provider"})
 
     log.info("Calling LLM provider", extra={"provider": provider_name, "workload": workload_difficulty})
@@ -170,6 +172,9 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
                 "model": selected_model_name,
                 "replacements": replacements
             })
+        end_time =  datetime.datetime.now()
+        seconds = (end_time - begin_time).total_seconds()
+        log.info(f'LLM call duration {seconds}')
         return cleaned_text
     except APIError as e:
         log.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})

@@ -492,8 +492,8 @@ def update_file_content(
         raise HTTPException(status_code=400, detail="Search/replace is only supported for Google Docs")
 
     try:
-        # When operating on docs stored on shared drives, include support flag
-        doc = docs_service.documents().get(documentId=file_id, supportsAllDrives=True).execute()
+        # Docs API doesn't accept supportsAllDrives; access is governed by Drive permissions
+        doc = docs_service.documents().get(documentId=file_id).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
 
@@ -513,7 +513,7 @@ def update_file_content(
             ]
             result = (
                 docs_service.documents()
-                .batchUpdate(documentId=file_id, body={"requests": requests}, supportsAllDrives=True)
+                .batchUpdate(documentId=file_id, body={"requests": requests})
                 .execute()
             )
             return {"updated": True, "matches": len(occurrences), "method": "replaceAllText", "result": result}
@@ -538,7 +538,7 @@ def update_file_content(
         ]
         result = (
             docs_service.documents()
-            .batchUpdate(documentId=file_id, body={"requests": requests}, supportsAllDrives=True)
+            .batchUpdate(documentId=file_id, body={"requests": requests})
             .execute()
         )
         return {"updated": True, "matches": 1, "method": "replaceNamedRangeContent", "result": result}
