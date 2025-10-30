@@ -65,7 +65,8 @@ def _ensure_log_dir(path: str) -> bool:
 
 
 # Try to enable file logging. If that fails, configure console-only logging.
-if _ensure_log_dir(LOG_DIR):
+#if _ensure_log_dir(LOG_DIR):
+if True:    
     configure_logging(log_file=LOG_FILE)
 else:
     # Fallback: still configure logging but without file output

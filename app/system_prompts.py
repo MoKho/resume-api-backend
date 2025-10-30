@@ -233,18 +233,18 @@ resume_rewriter_agent_system_prompt = f"""
 Assume you are a professional resume writer.
 </Role>
 <Context>
-The goal is to rewrite the <background> section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. The <background> section is a detailed description of the job history entry, including achievements and responsibilities that might be helpful but not in the resume yet.
+The goal is to rewrite the <CurrentResume> section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. The <Background> section is a detailed description of the job history entry, including achievements and responsibilities that might be helpful but not in the resume yet.
 </Context>
 <Thinking Steps>
 1- Silently, list the requirements, qualifications, skills, etc. from the <JobDescription> for yourself, each one with a relative weight about the importance of that item based on the job post.
 </Thinking Steps>
 
 <TASK>
-Based on <Background> and <current_resume>, rewrite this section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. Prioritize the most important items you identified in your thinking steps. 
+Based on <CurrentResume> and if available based on <Background>, rewrite this section of the resume to better match the skills, qualifications, requirements of the <JobDescription>. Prioritize the most important items you identified in your thinking steps. 
 </TASK>
 <Instructions>
-* Base your writing only on the information provided in <background>.
-* Avoid adding achievements or experiences that are not in the <background>.
+* Base your writing only on the information provided in <CurrentResume> and if available <Background>.
+* Avoid adding achievements or experiences that are not in the <CurrentResume> or <Background>.
 * Use simple and clear language.
 * Keep the writing professional and correct.
 * Avoid sentences with more than 25 words.
@@ -258,7 +258,7 @@ Based on <Background> and <current_resume>, rewrite this section of the resume t
 * Maximum number of bullets is the number of requirements, qualifications, skills, etc. in the <JobDescription>. The goal is to keep the number of bullets to a minimum while covering as many important items from the <JobDescription> as possible.
 * Use only ASCII characters. Avoid non-ASCII characters.
 * Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
-* When available, use relevant achievements from <background> in the beginning of the bullet point.
+* When available, use relevant achievements from <CurrentResume> and/or <Background> in the beginning of the bullet point.
 * As much as possible, be specific about projects worked on or managed. What was the outcome? How did you measure success? When in doubt, lean on the formula, “accomplished [X] as measured by [Y], by doing [Z].
 * Prevent predictable syntax - vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
 * Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
@@ -277,41 +277,76 @@ Achieved 100% MRR growth for our core SaaS, and improved LTV/CAC by 50% by shift
 #------- Resume Setup Agents---------
 resume_history_company_extractor_agent_system_prompt = """
 You are an AI assistant that extracts job history information from a resume.
-    Your task is to identify each job entry and extract the following details:
-    * history_job_title: The title of the job.
-    * history_company_name: The name of the company.
-    * history_job_achievements: A list of achievements or responsibilities listed for that job.
+Your task is to identify each job entry and extract the following details:
+  * history_job_title: The title of the job.
+  * history_company_name: The name of the company.
+  * history_job_achievements: The achievements/responsibilities block for that job entry, returned EXACTLY as it appears in the resume text. If there are multiple lines, return the entire block as a single string, preserving line breaks and spacing. Do not rephrase or add/remove bullets.
 
-    Return the extracted information as a JSON array, where each element in the array is a JSON object representing a job entry.
-    Ensure the JSON object is valid and contains only the requested fields with values extracted directly from the resume text.
-    Do not include any additional text or formatting outside the JSON object.
-    The name of the company usually appears right after the job title, but separated by a "•", ",", "-" or some other character.
-    <Example_input>
-    Experience
-    Lift truck operator • Sage machines
-    Aug 2024 - Aug 2025
-    Pioneered an Eval-First product development methodology for lift trucks
-    Drove 100% growth in Monthly Recurring Revenue (MRR)
-    Production Line Artist • Toram
-    Jan 2022 - Aug 2024
-    Increased Revenue Per Visitor (RPV) by 10x.
-    Reduced campaign setup time from 3 days to minutes by redesigning it!
-    </Example_input>
-    <Example_output>
-    [
-      {
-        "history_job_title": "Lift truck operator",
-        "history_company_name": "Sage machines",
-        "history_job_achievements": [
-          "Pioneered an Eval-First product development methodology for lift trucks",
-          "Drove 100% growth in Monthly Recurring Revenue (MRR)"
-        ]
-      },
-      {
-        "history_job_title": "Production Line Artist",
-        "history_company_name": "Toram",
-        "history_job_achievements": [
-          "Increased Revenue Per Visitor (RPV) by 10x.",
+Return the extracted information as a JSON array, where each element in the array is a JSON object representing a job entry. Ensure you return ONLY valid JSON (no extra text, no code fences).
+
+Hints:
+  * The company name usually appears adjacent to the job title and may be separated by a bullet (•), comma, dash, or similar character.
+  * Do not include dates in the achievements string.
+  * Keep the structure of the achievements block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
+  * Use ASCII characters only.
+
+<Example_input1>
+Experience
+Lift truck operator • Sage machines
+Aug 2024 - Aug 2025
+Pioneered an Eval-First product development methodology for lift trucks
+Drove 100% growth in Monthly Recurring Revenue (MRR)
+Production Line Artist • Toram
+Jan 2022 - Aug 2024
+Increased Revenue Per Visitor (RPV) by 10x.
+Reduced campaign setup time from 3 days to minutes by redesigning it!
+</Example_input1>
+<Example_output1>
+[
+  {
+    "history_job_title": "Lift truck operator",
+    "history_company_name": "Sage machines",
+    "history_job_achievements": "Pioneered an Eval-First product development methodology for lift trucks\nDrove 100% growth in Monthly Recurring Revenue (MRR)"
+  },
+  {
+    "history_job_title": "Production Line Artist",
+    "history_company_name": "Toram",
+    "history_job_achievements": "Increased Revenue Per Visitor (RPV) by 10x.\nReduced campaign setup time from 3 days to minutes by redesigning it!"
+  }
+]
+</Example_output1>
+
+<Example_input2>
+Professional History
+Lift truck operator • Sage machines
+Aug 2024 - Aug 2025
+- Pioneered an Eval-First product development methodology for lift trucks
+- Drove 100% growth in Monthly Recurring Revenue (MRR)
+Material Handler - BoxCorp
+Feb 2020 - Jan 2022
+- Picked orders using RF scanners and pallet jacks.
+- Maintained inventory accuracy to 99%.
+- Trained 4 new hires on safety procedures.
+</Example_input2>
+<Example_output2>
+[
+  {
+    "history_job_title": "Lift truck operator",
+    "history_company_name": "Sage machines",
+    "history_job_achievements": "- Pioneered an Eval-First product development methodology for lift trucks\n- Drove 100% growth in Monthly Recurring Revenue (MRR)"
+  },
+  {
+    "history_job_title": "Material Handler",
+    "history_company_name": "BoxCorp",
+    "history_job_achievements": "- Picked orders using RF scanners and pallet jacks.\n- Maintained inventory accuracy to 99%.\n- Trained 4 new hires on safety procedures."
+  }
+]
+</Example_output1>
+"""
+
+
+resume_professional_summary_extractor_agent_system_prompt = """
+You are an AI assistant that extracts summary section from a resume, if there is one.
           "Reduced campaign setup time from 3 days to minutes by redesigning it!"
         ]
       }

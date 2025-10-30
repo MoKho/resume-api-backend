@@ -16,6 +16,9 @@ router = APIRouter(
 # Use the service key here for backend operations
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY")
+# Ensure environment variables are present to satisfy type checkers and avoid runtime None
+if not supabase_url or not supabase_service_key:
+    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
 supabase: Client = create_client(supabase_url, supabase_service_key)
 
 @router.post("/", response_model=ApplicationResponse, status_code=202)

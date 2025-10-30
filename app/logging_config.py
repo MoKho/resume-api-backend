@@ -78,14 +78,18 @@ def configure_logging(level: int = logging.INFO, log_file: str | None = None) ->
         root.setLevel(level)
         for h in root.handlers:
             h.setLevel(level)
+        # Silence noisy httpx/httpcore logs (explicit)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
         # Enable httpx/httpcore DEBUG only if not in local/dev
-        if env not in ("local", "development", "dev"):
-            logging.getLogger("httpx").setLevel(logging.DEBUG)
-            logging.getLogger("httpcore").setLevel(logging.DEBUG)
-        else:
-            # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
-            logging.getLogger("httpx").setLevel(logging.INFO)
-            logging.getLogger("httpcore").setLevel(logging.INFO)
+        # Commented out to avoid noisy httpx "HTTP Request" logs at INFO/DEBUG level
+        # if env not in ("local", "development", "dev"):
+        #     logging.getLogger("httpx").setLevel(logging.DEBUG)
+        #     logging.getLogger("httpcore").setLevel(logging.DEBUG)
+        # else:
+        #     # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
+        #     logging.getLogger("httpx").setLevel(logging.INFO)
+        #     logging.getLogger("httpcore").setLevel(logging.INFO)
         return
     handlers = []
 
@@ -117,14 +121,19 @@ def configure_logging(level: int = logging.INFO, log_file: str | None = None) ->
     for h in root.handlers:
         h.setLevel(level)
 
+    # Silence noisy httpx/httpcore logs by default
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Apply verbose logging for httpx/httpcore only if not in local/dev
-    if env not in ("local", "development", "dev"):
-        logging.getLogger("httpx").setLevel(logging.DEBUG)
-        logging.getLogger("httpcore").setLevel(logging.DEBUG)
-    else:
-        # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
-        logging.getLogger("httpx").setLevel(logging.INFO)
-        logging.getLogger("httpcore").setLevel(logging.INFO)
+    # Commented out to avoid noisy httpx "HTTP Request" logs at INFO/DEBUG level
+    # if env not in ("local", "development", "dev"):
+    #     logging.getLogger("httpx").setLevel(logging.DEBUG)
+    #     logging.getLogger("httpcore").setLevel(logging.DEBUG)
+    # else:
+    #     # In local/dev, suppress httpx/httpcore INFO logs by setting to WARNING
+    #     logging.getLogger("httpx").setLevel(logging.INFO)
+    #     logging.getLogger("httpcore").setLevel(logging.INFO)
 
 
 def get_logger(name: str) -> logging.Logger:

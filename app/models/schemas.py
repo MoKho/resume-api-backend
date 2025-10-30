@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 # Request body for creating a new application
@@ -15,6 +15,15 @@ class ApplicationResponse(BaseModel):
     status: str
     target_job_description: str
     final_resume_text: Optional[str] = None
+    # Consolidated JSON of the specific resume sections the workflow updated.
+    # Example shape:
+    # {
+    #   "professional_summary": "...",
+    #   "work_history": [
+    #       {"id": 123, "job_title": "...", "company_name": "...", "text": "..."}
+    #   ]
+    # }
+    updated_fields: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:
@@ -97,7 +106,9 @@ class JobHistoryResponse(BaseModel):
     user_id: str
     company_name: Optional[str] = None
     job_title: Optional[str] = None
-    achievements_list: Optional[List[str]] = None
+    # Entire achievements/responsibilities block as a single string exactly as
+    # it appears in the resume (line breaks preserved).
+    achievements: Optional[str] = None
     detailed_background: Optional[str] = None
     is_default_rewrite: Optional[bool] = None  
 
@@ -112,5 +123,26 @@ class ProfileResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+# --- Google Drive Open-File Schemas ---
+
+class GoogleDriveFileRef(BaseModel):
+    """Represents a minimal Drive file reference."""
+    fileId: str
+    mimeType: Optional[str] = None
+    name: Optional[str] = None
+
+
+class GoogleDriveOpenFileRequest(BaseModel):
+    """Request to open a file from user's Drive and copy it to server's Drive."""
+    fileId: str
+
+
+class GoogleDriveOpenFileResponse(BaseModel):
+    """Response containing source/destination refs and extracted content."""
+    source: GoogleDriveFileRef
+    destination: GoogleDriveFileRef
+    content: str
 
 

@@ -46,21 +46,20 @@ def run_tailoring_process(application_id: int, user_id: str):
         rewritten_histories = {}
         for history in job_histories_to_rewrite:
             # Ensure there is detailed background to work with
-            if not history.get('detailed_background'):
-                log.warning("Skipping rewrite as no detailed background", extra={"history_id": history['id']})
-                continue
+            #if not history.get('detailed_background'):
+            #    log.warning("Skipping rewrite as no detailed background", extra={"history_id": history['id']})
+            #    continue
 
             log.info("Rewriting job history", extra={"history_id": history['job_title']})
 
-            current_resume_context = history.get('achievements_list', '')
-            log.info("type of achievements_list: %s", type(current_resume_context))
-            current_resume = "\n".join(f'- {item}' for item in current_resume_context)
-            log.info(f'\n\n\n\n\n\n\n\n\nType:  {type(current_resume)} \n and preview of current resume context:{current_resume[:200]}')
+            current_resume = history.get('achievements', '') or ""
+            #log.info(f'\n\n\n\n\n\n\n\n\nType:  {type(current_resume)} \n and preview of current resume context:{current_resume[:200]}')
             rewritten_text = llm_service.rewrite_job_history(
                 job_history_background=history['detailed_background'],
                 summarized_job_description=summarized_jd,
                 current_resume=current_resume  # Using detailed background as current resume context
             )
+            #log.info("Rewritten text for history id %s: %s", history['id'], rewritten_text)
             rewritten_histories[history['id']] = rewritten_text
 
         # Step 4: Assemble the intermediate resume with real find-and-replace
@@ -68,26 +67,27 @@ def run_tailoring_process(application_id: int, user_id: str):
         log.info("Replacing job history sections in the resume...")
         for history in job_histories_to_rewrite:
             history_id = history['id']
+            log.info("Processing replacement for history", extra={"history_id": history_id})
+            #log.info("original history: %s", history.get('achievements'))
+            #log.info("rewritten history: %s", rewritten_histories.get(history_id))
             # Check if this history was successfully rewritten in the previous step
             if history_id not in rewritten_histories:
+                log.warning("No rewritten text found for history; skipping replacement", extra={"history_id": history_id})
                 continue
 
-            # Reconstruct the original block of achievement text from the stored list.
-            # This relies on the parsing LLM splitting achievements by newlines.
-            original_achievements = history.get('achievements_list')
-            if not original_achievements:
-                log.warning("Skipping replacement as no original achievements list", extra={"history_id": history_id})
+            # Get the original block of achievement text.
+            original_achievements_block = history.get('achievements')
+            if not original_achievements_block:
+                log.warning("Skipping replacement as no original achievements block", extra={"history_id": history_id})
                 continue
-            
-            original_achievements_block = "\n".join(original_achievements)
             
             # Get the new, AI-generated text.
             new_rewritten_text = rewritten_histories[history_id]
-
+            #log.info("Replacing original achievements block with rewritten text", extra={"New history": new_rewritten_text})
             # Perform the replacement, but only for the first occurrence to be safe.
             updated_resume = updated_resume.replace(original_achievements_block, new_rewritten_text, 1)
 
-        # Step 5: Generate the new summary
+    # Step 5: Generate the new summary
         log.info("Generating new professional summary...")
         new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
 
@@ -101,11 +101,28 @@ def run_tailoring_process(application_id: int, user_id: str):
             log.info("No existing summary found. Prepending new summary.")
             final_resume = f"{new_summary}\n\n{updated_resume}"
         
+        # Step 7: Build a structured map of the updated fields to support granular UI copy
+        updated_fields = {
+            "professional_summary": new_summary,
+            "work_history": [
+                {
+                    "id": h["id"],
+                    "job_title": h.get("job_title"),
+                    "company_name": h.get("company_name"),
+                    "text": rewritten_histories.get(h["id"])  # only present if rewritten
+                }
+                for h in job_histories_to_rewrite
+                if h["id"] in rewritten_histories
+            ]
+        }
+
         # Final Step: Update the application in the database
-        log.info("Updating application in Supabase with final resume...")
+        log.info("Updating application in Supabase with final resume and updated fields...")
         supabase.table("applications").update({
             "final_resume_text": final_resume,
-            "status": "completed"
+            "updated_fields": updated_fields,
+            "status": "completed",
+            "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         }).eq("id", application_id).execute()
         log.info("Successfully completed tailoring")
 
