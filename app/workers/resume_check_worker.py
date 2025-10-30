@@ -4,10 +4,17 @@ from zoneinfo import ZoneInfo
 from app.services.resume_service import supabase, run_resume_check_process
 from app.logging_config import get_logger, bind_logger, configure_logging
 import app.utils.csv_to_score
+from app.utils.env import get_float_from_env
 
 configure_logging()
 logger = get_logger(__name__)
-POLL_INTERVAL = 10  # seconds
+POLL_INTERVAL = get_float_from_env(
+    ["RESUME_CHECK_POLL_INTERVAL_SECONDS", "WORKER_POLL_INTERVAL_SECONDS"],
+    default=10.0,
+    min_value=0.0,
+    logger=logger,
+)
+logger.info("resume_check_worker starting with poll interval: %ss", POLL_INTERVAL)
 
 
 def process_pending_jobs():
