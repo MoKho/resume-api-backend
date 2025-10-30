@@ -3,9 +3,16 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from app.services.resume_service import supabase, run_tailoring_process
 from app.logging_config import get_logger, bind_logger
+from app.utils.env import get_float_from_env
 
 logger = get_logger(__name__)
-POLL_INTERVAL = 0.1  # seconds
+POLL_INTERVAL = get_float_from_env(
+    ["TAILORING_POLL_INTERVAL_SECONDS", "WORKER_POLL_INTERVAL_SECONDS"],
+    default=10.0,
+    min_value=0.0,
+    logger=logger,
+)
+logger.info("tailoring_worker starting with poll interval: %ss", POLL_INTERVAL)
 
 
 def process_pending_applications():

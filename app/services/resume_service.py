@@ -2,11 +2,12 @@ import os
 import logging
 import json
 from typing import Optional
-from datetime import datetime, timezone
+import datetime
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.services import llm_service
+from app.utils import gdrive_resume_utils as gdrive_utils
 from app import system_prompts
 from app.logging_config import get_logger, bind_logger, configure_logging
 
@@ -36,7 +37,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         # Step 1: Fetch all necessary data from Supabase
         log.info("Fetching data from Supabase...")
         app_data = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
-        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text").eq("id", user_id).single().execute().data
+        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text, gdrive_master_resume_id, first_name, last_name").eq("id", user_id).single().execute().data
         job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("user_id", user_id).eq("is_default_rewrite", True).execute().data
         
         # Step 2: Analyze the job description
@@ -87,7 +88,7 @@ def run_tailoring_process(application_id: int, user_id: str):
             # Perform the replacement, but only for the first occurrence to be safe.
             updated_resume = updated_resume.replace(original_achievements_block, new_rewritten_text, 1)
 
-    # Step 5: Generate the new summary
+        # Step 5: Generate the new summary
         log.info("Generating new professional summary...")
         new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
 
@@ -116,15 +117,90 @@ def run_tailoring_process(application_id: int, user_id: str):
             ]
         }
 
-        # Final Step: Update the application in the database
+        # Optional Google Drive branch — if user has a master resume on Drive
+        gdrive_pdf_id = None
+        try:
+            master_id = profile_data.get("gdrive_master_resume_id") if profile_data else None
+            if master_id:
+                log.info("gdrive_master_resume_id found — creating Drive duplicate and applying changes")
+
+                # Create name for the tailored resume doc
+                # Create MonthYear for the name
+                month_year = datetime.datetime.now().strftime("%m%y")
+                if profile_data.get("first_name") and profile_data.get("last_name"):
+                    desired_name = f"Resume-{profile_data['first_name']}{profile_data['last_name']}-{month_year}"
+                else:
+                    desired_name = f"Resume-{month_year}"
+                dup = gdrive_utils.duplicate_master_resume(user_id, desired_name)
+                dup_id_val = dup.get("id")
+                dup_id: Optional[str] = dup_id_val if isinstance(dup_id_val, str) else None
+                if not dup_id:
+                    log.warning("Duplicate file created without id; skipping Drive edits")
+
+                # Apply per-history replacements on the Drive doc
+                for history in job_histories_to_rewrite:
+                    h_id = history.get('id')
+                    if not h_id or not dup_id:
+                        continue
+                    original_achievements_block = history.get('achievements')
+                    new_rewritten_text = rewritten_histories.get(h_id)
+                    if not original_achievements_block or not new_rewritten_text:
+                        continue
+                    try:
+                        gdrive_utils.replace_text_in_doc(dup_id, original_achievements_block, new_rewritten_text, replace_all=False)
+                    except Exception:
+                        log.exception("Drive replace failed for job history", extra={"history_id": h_id})
+
+                # Replace or prepend summary in the Drive doc
+                if dup_id:
+                    if old_summary:
+                        try:
+                            gdrive_utils.replace_text_in_doc(dup_id, old_summary, new_summary, replace_all=False)
+                        except Exception:
+                            log.exception("Drive replace failed for summary; attempting prepend")
+                            try:
+                                gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
+                            except Exception:
+                                log.exception("Drive prepend failed for summary as well")
+                    else:
+                        try:
+                            gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
+                        except Exception:
+                            log.exception("Drive prepend failed for summary")
+
+                # Export to PDF on Drive
+                try:
+                    if dup_id:
+                        gdrive_pdf_id = gdrive_utils.export_doc_to_pdf(dup_id, f"{desired_name}.pdf")
+                except Exception:
+                    log.exception("Drive export to PDF failed")
+            else:
+                log.warning("No Drive document ID found; skipping Drive updates")
+        except Exception:
+            log.exception("Google Drive tailoring branch failed; continuing without Drive artifacts")
+
+        # Final Step: Update the application in the database (always)
         log.info("Updating application in Supabase with final resume and updated fields...")
-        supabase.table("applications").update({
+        # "final_resume_text" stores the fully tailored resume text for the application.
+        # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
+        update_payload = {
             "final_resume_text": final_resume,
             "updated_fields": updated_fields,
             "status": "completed",
-            "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
-        }).eq("id", application_id).execute()
-        log.info("Successfully completed tailoring")
+            "gdrive_pdf_resume_id": gdrive_pdf_id,
+            "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        }
+        try:
+            response = supabase.table("applications").update(update_payload).eq("id", application_id).execute()
+            log.info("Successfully completed tailoring")
+            if hasattr(response, "error") and response.error:
+                log.error("Failed to update application in Supabase", extra={"error": response.error})
+                raise Exception(f"Supabase update failed: {response.error}")
+        except Exception as e:
+            log.error("Exception occurred while updating application in Supabase", extra={"error": str(e)})
+            raise Exception(f"Supabase update failed: {e}")
+
+
 
     except Exception as e:
         log.exception("Error during tailoring process", exc_info=True)
@@ -201,7 +277,7 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
                 log.exception("Qualifications extraction failed. Failing the job.")
                 raise
         # Persist qualifications to the resume_checks row if we found a job_id
-        now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        now = datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         if job_id and qualifications_text is not None:
             try:
                 supabase.table("resume_checks").update({"qualifications": qualifications_text, "updated_at": now}).eq("id", job_id).execute()

@@ -20,12 +20,19 @@ class JsonFormatter(logging.Formatter):
         # Base payload
         now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         # now = datetime.now(timezone.utc) --- IGNORE ---
-        payload: Dict[str, Any] = {
-            "timestamp": now,
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
+        env = os.environ.get("ENV", "production").lower()
+        if env in ("local", "development", "dev"):
+            payload = {
+                "level": record.levelname,
+                "message": record.getMessage(),
+            }
+        else:
+            payload: Dict[str, Any] = {
+                "timestamp": now,
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            }
 
         # Include exception info if present
         if record.exc_info:
