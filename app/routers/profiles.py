@@ -18,7 +18,7 @@ from app.logging_config import get_logger, bind_logger, configure_logging
 
 configure_logging()
 
-load_dotenv()
+load_dotenv(override=True)
 
 router = APIRouter(
     prefix="/profiles",

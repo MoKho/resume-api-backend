@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import re
 from typing import Optional
 import datetime
 from zoneinfo import ZoneInfo
@@ -12,7 +13,7 @@ from app import system_prompts
 from app.logging_config import get_logger, bind_logger, configure_logging
 
 configure_logging()
-load_dotenv()
+load_dotenv(override=True)
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,44 @@ supabase: Client = create_client(supabase_url, supabase_service_key)
 def run_tailoring_process(application_id: int, user_id: str):
     log = bind_logger(logger, {"agent_name": "tailoring_worker", "user_id": user_id, "application_id": application_id})
     log.info("Starting tailoring process")
+    
+    # --- Flexible replace helpers ---
+    def _whitespace_pattern() -> str:
+        # Match any run of whitespace, including non-breaking/zero-width spaces
+        return r"[\s\u00A0\u200B]+"
+
+    def _flexible_pattern_from_block(block: str) -> re.Pattern:
+        # Build a regex pattern from the block where any contiguous whitespace in the block
+        # is matched as a flexible whitespace run in the target.
+        parts = []
+        i = 0
+        while i < len(block):
+            ch = block[i]
+            if ch.isspace() or ch in ("\u00A0", "\u200B"):
+                # Consume the entire whitespace run in the block
+                while i < len(block) and (block[i].isspace() or block[i] in ("\u00A0", "\u200B")):
+                    i += 1
+                parts.append(_whitespace_pattern())
+            else:
+                parts.append(re.escape(ch))
+                i += 1
+        pattern = "".join(parts)
+        return re.compile(pattern, flags=re.DOTALL | re.MULTILINE)
+
+    def _flexible_replace(haystack: str, needle_block: str, replacement: str) -> tuple[str, bool]:
+        """
+        Attempt a whitespace-tolerant replacement of the first occurrence of needle_block
+        inside haystack. Returns (new_text, replaced_bool) and preserves haystack formatting
+        except for the replaced region, which uses `replacement` as-is.
+        """
+        if not needle_block:
+            return haystack, False
+        pat = _flexible_pattern_from_block(needle_block)
+        m = pat.search(haystack)
+        if not m:
+            return haystack, False
+        start, end = m.span()
+        return haystack[:start] + replacement + haystack[end:], True
     try:
         # Step 1: Fetch all necessary data from Supabase
         log.info("Fetching data from Supabase...")
@@ -84,9 +123,32 @@ def run_tailoring_process(application_id: int, user_id: str):
             
             # Get the new, AI-generated text.
             new_rewritten_text = rewritten_histories[history_id]
+            #log.info("Original achievements block: %s", original_achievements_block)
+            #log.info("New rewritten text: %s", new_rewritten_text)
             #log.info("Replacing original achievements block with rewritten text", extra={"New history": new_rewritten_text})
             # Perform the replacement, but only for the first occurrence to be safe.
-            updated_resume = updated_resume.replace(original_achievements_block, new_rewritten_text, 1)
+            # ...existing code...
+            # Before performing replacement:
+            if original_achievements_block not in updated_resume:
+                log.warning(
+                    "Achievements block not found in resume (exact match). "
+                    "len_block=%d len_resume=%d",
+                    len(original_achievements_block), len(updated_resume)
+                )
+                # Optional: perform normalized check to confirm newline/whitespace mismatch
+                def _norm(s: str) -> str:
+                    return (
+                        s.replace("\r\n", "\n").replace("\r", "\n")
+                        .replace("\u00A0", " ").replace("\u200B", "").replace("\ufeff", "")
+                    )
+                if _norm(original_achievements_block) in _norm(updated_resume):
+                    log.info("Normalized match found (newline/whitespace/punctuation normalization fixes it)")
+            # Try flexible replacement that tolerates whitespace differences
+            replaced_resume, did_replace = _flexible_replace(updated_resume, original_achievements_block, new_rewritten_text)
+            if not did_replace:
+                log.warning("Flexible replacement failed for job history block; leaving original text", extra={"history_id": history_id})
+            else:
+                updated_resume = replaced_resume
 
         # Step 5: Generate the new summary
         log.info("Generating new professional summary...")
@@ -97,7 +159,16 @@ def run_tailoring_process(application_id: int, user_id: str):
 
         if old_summary:
             log.info("Found existing summary. Replacing it.")
-            final_resume = updated_resume.replace(old_summary, new_summary)
+            log.info("Old summary: %s", old_summary)
+            log.info("New summary: %s", new_summary)
+            # Use flexible replacement for summary as well; if it fails, prepend
+            replaced_resume, did_replace = _flexible_replace(updated_resume, old_summary, new_summary)
+            if did_replace:
+                final_resume = replaced_resume
+                log.info("Summary replaced using flexible match")
+            else:
+                log.warning("Summary replacement failed with flexible match; prepending new summary")
+                final_resume = f"{new_summary}\n\n{updated_resume}"
         else:
             log.info("No existing summary found. Prepending new summary.")
             final_resume = f"{new_summary}\n\n{updated_resume}"
@@ -116,6 +187,28 @@ def run_tailoring_process(application_id: int, user_id: str):
                 if h["id"] in rewritten_histories
             ]
         }
+
+                # Final Step: Update the application in the database (always)
+        log.info("Updating application in Supabase with final resume and updated fields...")
+        # "final_resume_text" stores the fully tailored resume text for the application.
+        # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
+        update_payload = {
+            "final_resume_text": final_resume,
+            "updated_fields": updated_fields,
+            "status": "completed",
+            "gdrive_pdf_resume_id": gdrive_pdf_id,
+            "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        }
+        try:
+            response = supabase.table("applications").update(update_payload).eq("id", application_id).execute()
+            log.info("Successfully completed tailoring")
+            if hasattr(response, "error") and response.error:
+                log.error("Failed to update application in Supabase", extra={"error": response.error})
+                raise Exception(f"Supabase update failed: {response.error}")
+        except Exception as e:
+            log.error("Exception occurred while updating application in Supabase", extra={"error": str(e)})
+            raise Exception(f"Supabase update failed: {e}")
+
 
         # Optional Google Drive branch — if user has a master resume on Drive
         gdrive_pdf_id = None
@@ -179,26 +272,23 @@ def run_tailoring_process(application_id: int, user_id: str):
         except Exception:
             log.exception("Google Drive tailoring branch failed; continuing without Drive artifacts")
 
-        # Final Step: Update the application in the database (always)
-        log.info("Updating application in Supabase with final resume and updated fields...")
-        # "final_resume_text" stores the fully tailored resume text for the application.
-        # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
-        update_payload = {
-            "final_resume_text": final_resume,
-            "updated_fields": updated_fields,
-            "status": "completed",
-            "gdrive_pdf_resume_id": gdrive_pdf_id,
-            "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
-        }
-        try:
-            response = supabase.table("applications").update(update_payload).eq("id", application_id).execute()
-            log.info("Successfully completed tailoring")
-            if hasattr(response, "error") and response.error:
-                log.error("Failed to update application in Supabase", extra={"error": response.error})
-                raise Exception(f"Supabase update failed: {response.error}")
-        except Exception as e:
-            log.error("Exception occurred while updating application in Supabase", extra={"error": str(e)})
-            raise Exception(f"Supabase update failed: {e}")
+        if gdrive_pdf_id:
+            # Add gdrive_pdf_id to the application in the database
+            log.info("Updating application in Supabase with gdrive_pdf_id...")
+            # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
+            gdrive_payload = {
+                "gdrive_pdf_resume_id": gdrive_pdf_id,
+                "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+            }
+            try:
+                response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
+                log.info("Successfully Added gdrive_pdf_id to application")
+                if hasattr(response, "error") and response.error:
+                    log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": response.error})
+                    raise Exception(f"Supabase update failed: {response.error}")
+            except Exception as e:
+                log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
+                raise Exception(f"Supabase update failed: {e}")
 
 
 

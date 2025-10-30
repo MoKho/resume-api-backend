@@ -1,6 +1,9 @@
 import os
 import logging
 from typing import Iterable, Optional
+from app.logging_config import get_logger, bind_logger, configure_logging
+configure_logging()
+
 
 
 def get_float_from_env(
@@ -19,7 +22,9 @@ def get_float_from_env(
     Examples:
         get_float_from_env(["FOO", "BAR"], default=10.0, min_value=0.0)
     """
-    log = logger or logging.getLogger(__name__)
+    logger = get_logger(__name__)
+    log = bind_logger(logger, {"function": "get_float_from_env"})
+    log.info("Fetching float from env vars: %s", keys)
 
     selected_key = None
     raw = None
@@ -30,10 +35,13 @@ def get_float_from_env(
             break
 
     if raw in (None, ""):
+        log.info("No env var set from %s; defaulting to %s", keys, default)
         return default
 
     try:
+        
         val = float(raw)
+        log.info("Using env var %s=%s", selected_key, val)
     except Exception:
         log.warning("Invalid float for %s='%s'; defaulting to %s", selected_key, raw, default)
         return default
