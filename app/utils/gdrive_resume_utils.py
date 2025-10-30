@@ -23,6 +23,7 @@ Notes:
 from __future__ import annotations
 
 from typing import Dict, Optional
+import re
 
 from fastapi import HTTPException
 
@@ -115,6 +116,228 @@ def replace_text_in_doc(
         replace_text=final_text or "",
         replace_all=replace_all,
     )
+
+
+def _flexible_whitespace_pattern() -> str:
+    """Regex character class to match any run of whitespace including NBSP/zero-width."""
+    return r"[\s\u00A0\u200B]+"
+
+
+def _pattern_from_block(block: str) -> re.Pattern:
+    """Create a whitespace-tolerant regex pattern from a text block.
+
+    Contiguous whitespace in the block is matched by a flexible pattern in the target,
+    while all non-whitespace characters are escaped literally.
+    """
+    parts = []
+    i = 0
+    while i < len(block):
+        ch = block[i]
+        if ch.isspace() or ch in ("\u00A0", "\u200B"):
+            while i < len(block) and (block[i].isspace() or block[i] in ("\u00A0", "\u200B")):
+                i += 1
+            parts.append(_flexible_whitespace_pattern())
+        else:
+            parts.append(re.escape(ch))
+            i += 1
+    pattern = "".join(parts)
+    return re.compile(pattern, flags=re.DOTALL | re.MULTILINE)
+
+
+def _pattern_from_block_docs(block: str) -> re.Pattern:
+    """Docs-focused pattern builder that tolerates list bullets/numbers at line starts.
+
+    For each line:
+      - If it starts with a common bullet (*, -, •, – , —) or a numbered list (e.g., 1.  or 2) ),
+        we do NOT require those characters to match because Docs represents bullets via styling.
+      - Whitespace runs are matched using a flexible pattern so CR/LF/NBSP differences are tolerated.
+    """
+    bullet_prefix = re.compile(r"^\s*(?:[\*\-•–—]\s+|\d+[\.)]\s+)")
+    lines = block.splitlines()
+    parts: list[str] = []
+    for idx, line in enumerate(lines):
+        # Optionally allow bullet prefix but don't require it in the doc text
+        m = bullet_prefix.match(line)
+        if m:
+            # In the doc text, the bullet glyph is not part of text runs; treat as optional (zero width)
+            # So we simply ignore the bullet prefix from the pattern and match the remaining text.
+            line_body = line[m.end():]
+        else:
+            line_body = line
+
+        # Convert the line body to a flexible pattern
+        j = 0
+        while j < len(line_body):
+            ch = line_body[j]
+            if ch.isspace() or ch in ("\u00A0", "\u200B"):
+                while j < len(line_body) and (line_body[j].isspace() or line_body[j] in ("\u00A0", "\u200B")):
+                    j += 1
+                parts.append(_flexible_whitespace_pattern())
+            else:
+                parts.append(re.escape(ch))
+                j += 1
+
+        # Between lines, allow flexible whitespace (Docs uses paragraph newlines)
+        if idx < len(lines) - 1:
+            parts.append(_flexible_whitespace_pattern())
+
+    pattern = "".join(parts)
+    return re.compile(pattern, flags=re.DOTALL | re.MULTILINE)
+
+
+def _flatten_doc_text_with_map(document: dict) -> tuple[str, list[dict]]:
+    """Flatten the Google Doc body text into a single string and map offsets to doc indices.
+
+    Returns (flat_text, segments) where each segment is a dict with:
+      - flat_start, flat_end: offsets in flat_text
+      - doc_start, doc_end: corresponding document indices for that text run
+    """
+    body = (document or {}).get("body", {})
+    content = body.get("content", []) or []
+    flat_parts: list[str] = []
+    segments: list[dict] = []
+    flat_offset = 0
+
+    for el in content:
+        para = el.get("paragraph")
+        if not para:
+            # Could be a table or section break; ignore for now
+            continue
+        for pe in para.get("elements", []) or []:
+            text_run = pe.get("textRun")
+            if not text_run:
+                continue
+            text = text_run.get("content") or ""
+            if not text:
+                continue
+            doc_start = pe.get("startIndex")
+            doc_end = pe.get("endIndex")
+            if not isinstance(doc_start, int) or not isinstance(doc_end, int):
+                # If indices are missing, skip mapping this run to avoid corrupting ranges
+                continue
+            flat_start = flat_offset
+            flat_end = flat_start + len(text)
+            flat_parts.append(text)
+            segments.append({
+                "flat_start": flat_start,
+                "flat_end": flat_end,
+                "doc_start": doc_start,
+                "doc_end": doc_end,
+                "text": text,
+            })
+            flat_offset = flat_end
+
+    return ("".join(flat_parts), segments)
+
+
+def _map_flat_offset_to_doc_index(segments: list[dict], flat_offset: int) -> Optional[int]:
+    """Map a flat text offset back to a Google Doc index using the segments map."""
+    for seg in segments:
+        if seg["flat_start"] <= flat_offset <= seg["flat_end"]:
+            # Compute proportional index within this segment
+            delta = flat_offset - seg["flat_start"]
+            return seg["doc_start"] + delta
+    return None
+
+
+def _range_overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
+    return not (a_end <= b_start or b_end <= a_start)
+
+
+def _is_list_block(document: dict, doc_start: int, doc_end: int) -> bool:
+    """Return True if the range overlaps any paragraph that has bullet styling."""
+    for el in (document or {}).get("body", {}).get("content", []) or []:
+        para = el.get("paragraph")
+        if not para:
+            continue
+        el_start = el.get("startIndex")
+        el_end = el.get("endIndex")
+        if isinstance(el_start, int) and isinstance(el_end, int) and _range_overlaps(el_start, el_end, doc_start, doc_end):
+            if para.get("bullet") is not None:
+                return True
+    return False
+
+
+_LIST_PREFIX_RE = re.compile(r"^\s*(?:[\*\-•–—]\s+|\d+[\.)]\s+)")
+
+
+def _strip_list_prefixes(text: str) -> str:
+    """Remove common bullet/number prefixes from each line of text."""
+    lines = text.splitlines()
+    stripped = [_LIST_PREFIX_RE.sub("", line) for line in lines]
+    return "\n".join(stripped)
+
+
+def replace_text_block_flexible(
+    file_id: str,
+    original_text: str,
+    final_text: str,
+) -> Dict[str, object]:
+    """Find the entire original_text in a Doc using whitespace-tolerant matching and replace it.
+
+    This searches the whole original block (not only first/last sentence) using a flexible regex
+    that tolerates CR/LF, NBSP, and zero-width spaces. It then replaces the matched range via
+    Docs API batchUpdate calls.
+    """
+    if not file_id:
+        raise HTTPException(status_code=400, detail="file_id is required")
+    if not original_text:
+        return {"updated": False, "matches": 0, "method": "replace_text_block_flexible", "reason": "empty original_text"}
+
+    creds = gds.get_service_account_credentials()
+    drive = gds.build_drive_service(creds)
+    docs = gds.build_docs_service(creds)
+
+    # Ensure it's a Google Doc
+    meta = gds.get_file_metadata(drive, file_id, fields="id, mimeType")
+    if meta.get("mimeType") != "application/vnd.google-apps.document":
+        raise HTTPException(status_code=400, detail="Search/replace supported only for Google Docs")
+
+    doc = docs.documents().get(documentId=file_id).execute()
+    flat_text, segments = _flatten_doc_text_with_map(doc)
+
+    # Build pattern (Docs-aware) and search the entire flat text
+    pattern = _pattern_from_block_docs(original_text)
+    m = pattern.search(flat_text)
+    if not m:
+        return {"updated": False, "matches": 0, "method": "replace_text_block_flexible"}
+
+    flat_start, flat_end = m.span()
+    # Map to doc indices
+    doc_start = _map_flat_offset_to_doc_index(segments, flat_start)
+    # For end index in Docs API, use exclusive end
+    doc_end = _map_flat_offset_to_doc_index(segments, flat_end)
+    if doc_start is None or doc_end is None:
+        return {"updated": False, "matches": 0, "method": "replace_text_block_flexible", "reason": "failed to map indices"}
+
+    try:
+        # If the original range belonged to a list, strip bullet prefixes and reapply bullet styling
+        insert_text = final_text or ""
+        make_list = _is_list_block(doc, doc_start, doc_end)
+        if make_list:
+            insert_text = _strip_list_prefixes(insert_text)
+
+        requests = [
+            {"deleteContentRange": {"range": {"startIndex": doc_start, "endIndex": doc_end}}},
+            {"insertText": {"location": {"index": doc_start}, "text": insert_text}},
+        ]
+
+        # Optionally re-apply bullet styling to the inserted paragraphs
+        if make_list and insert_text:
+            requests.append({
+                "createParagraphBullets": {
+                    "range": {"startIndex": doc_start, "endIndex": doc_start + len(insert_text)},
+                    "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
+                }
+            })
+        result = (
+            docs.documents()
+            .batchUpdate(documentId=file_id, body={"requests": requests})
+            .execute()
+        )
+        return {"updated": True, "matches": 1, "method": "replace_text_block_flexible", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to replace text range: {e}")
 
 
 def prepend_text_to_doc_top(file_id: str, text: str) -> dict:

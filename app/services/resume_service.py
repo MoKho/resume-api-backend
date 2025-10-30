@@ -170,8 +170,9 @@ def run_tailoring_process(application_id: int, user_id: str):
                 log.warning("Summary replacement failed with flexible match; prepending new summary")
                 final_resume = f"{new_summary}\n\n{updated_resume}"
         else:
-            log.info("No existing summary found. Prepending new summary.")
-            final_resume = f"{new_summary}\n\n{updated_resume}"
+            logging.info("No existing summary found; ignoring summary replacement")
+            #log.info("No existing summary found. Prepending new summary.")
+            #final_resume = f"{new_summary}\n\n{updated_resume}"
         
         # Step 7: Build a structured map of the updated fields to support granular UI copy
         updated_fields = {
@@ -239,7 +240,11 @@ def run_tailoring_process(application_id: int, user_id: str):
                     if not original_achievements_block or not new_rewritten_text:
                         continue
                     try:
-                        gdrive_utils.replace_text_in_doc(dup_id, original_achievements_block, new_rewritten_text, replace_all=False)
+                        # Prefer whole-block flexible replacement (whitespace tolerant). Fallback to basic replace.
+                        res = gdrive_utils.replace_text_block_flexible(dup_id, original_achievements_block, new_rewritten_text)
+                        if not res.get("updated"):
+                            log.warning("Flexible block replace failed; falling back to basic replace", extra={"history_id": h_id})
+                            gdrive_utils.replace_text_in_doc(dup_id, original_achievements_block, new_rewritten_text, replace_all=False)
                     except Exception:
                         log.exception("Drive replace failed for job history", extra={"history_id": h_id})
 
@@ -247,7 +252,10 @@ def run_tailoring_process(application_id: int, user_id: str):
                 if dup_id:
                     if old_summary:
                         try:
-                            gdrive_utils.replace_text_in_doc(dup_id, old_summary, new_summary, replace_all=False)
+                            res = gdrive_utils.replace_text_block_flexible(dup_id, old_summary, new_summary)
+                            if not res.get("updated"):
+                                log.warning("Flexible summary replace failed; falling back to basic replace")
+                                gdrive_utils.replace_text_in_doc(dup_id, old_summary, new_summary, replace_all=False)
                         except Exception:
                             log.exception("Drive replace failed for summary; attempting prepend")
                             try:
@@ -255,10 +263,11 @@ def run_tailoring_process(application_id: int, user_id: str):
                             except Exception:
                                 log.exception("Drive prepend failed for summary as well")
                     else:
-                        try:
-                            gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
-                        except Exception:
-                            log.exception("Drive prepend failed for summary")
+                        logging.info("No existing summary found; ignoring summary replacement")
+                    #    try:
+                    #        gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
+                    #    except Exception:
+                    #        log.exception("Drive prepend failed for summary")
 
                 # Export to PDF on Drive
                 try:
@@ -282,9 +291,10 @@ def run_tailoring_process(application_id: int, user_id: str):
             try:
                 response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
                 log.info("Successfully Added gdrive_pdf_id to application")
-                if hasattr(response, "error") and response.error:
-                    log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": response.error})
-                    raise Exception(f"Supabase update failed: {response.error}")
+                err = getattr(response, "error", None)
+                if err:
+                    log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": err})
+                    raise Exception(f"Supabase update failed: {err}")
             except Exception as e:
                 log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
                 raise Exception(f"Supabase update failed: {e}")
