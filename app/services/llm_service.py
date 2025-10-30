@@ -88,7 +88,7 @@ model_mapping = {
 
 # --- Core LLM Caller Function ---
 
-def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None):
+def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_prompt, custom_settings=None, clean_to_ascii: bool = True):
     begin_time = datetime.datetime.now()
     log = bind_logger(logger, {"agent_name": "call llm provider"})
 
@@ -165,17 +165,21 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
         log.info("API call successful", extra={"model": selected_model_name})
 
         raw_text = response.choices[0].message.content
-        # Sanitize to ASCII and log any replacements
-        found, cleaned_text, replacements = normalize_to_ascii(raw_text)
-        if found:
-            log.info("Non-ASCII characters found and sanitized", extra={
-                "model": selected_model_name,
-                "replacements": replacements
-            })
+        # Optionally sanitize to ASCII and log any replacements
+        if clean_to_ascii:
+            found, cleaned_text, replacements = normalize_to_ascii(raw_text)
+            if found:
+                log.info("Non-ASCII characters found and sanitized", extra={
+                    "model": selected_model_name,
+                    "replacements": replacements
+                })
+            result_text = cleaned_text
+        else:
+            result_text = raw_text
         end_time =  datetime.datetime.now()
         seconds = (end_time - begin_time).total_seconds()
         log.info(f'LLM call duration {seconds}')
-        return cleaned_text
+        return result_text
     except APIError as e:
         log.exception("An API error occurred during LLM call in call_llm", exc_info=True, extra={"model": selected_model_name})
         raise
@@ -339,7 +343,8 @@ def parse_resume_to_json(resume_text: str) -> List[dict]:
             provider_name='groq',
             workload_difficulty='resume-history-jobs-extractor',
             system_prompt=system_prompts.resume_history_company_extractor_agent_system_prompt,
-            user_prompt=resume_text
+            user_prompt=resume_text,
+            clean_to_ascii=False
         )
         # The LLM returns a JSON string representing a list[object]. Each object contains
         # history_job_title, history_company_name, and history_job_achievements (string).
@@ -375,7 +380,8 @@ def extract_professional_summary(resume_text: str) -> str:
             provider_name='groq',
             workload_difficulty='resume-professional-summary-extractor',
             system_prompt=system_prompts.resume_professional_summary_extractor_agent_system_prompt,
-            user_prompt=resume_text
+            user_prompt=resume_text,
+            clean_to_ascii=False
         )
         log.info("Successfully extracted professional summary")
         return response_str
