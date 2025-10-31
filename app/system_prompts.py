@@ -262,6 +262,7 @@ Based on <CurrentResume> and if available based on <Background>, rewrite this se
 * As much as possible, be specific about projects worked on or managed. What was the outcome? How did you measure success? When in doubt, lean on the formula, “accomplished [X] as measured by [Y], by doing [Z].
 * Prevent predictable syntax - vary sentence length and shape; mix declaratives, interrogatives, exclamations, and occasional asides.
 * Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
+* Do not include or infer years-of-experience requirements from the <JobDescription> in the rewritten bullets (e.g., "5+ years", "over five years", "4+ years"). Avoid adding such phrases even if the <JobDescription> mentions them.
 * Include items that show general skills and experiences such as frameworks, platforms, tools that are generally required for such a role, even if they are not a part of the job description. Sprinkle them in the bullet points you write or as stand alone bullet points.
 
 
@@ -270,6 +271,20 @@ Based on <CurrentResume> and if available based on <Background>, rewrite this se
 <Good Example 1>
 Achieved 100% MRR growth for our core SaaS, and improved LTV/CAC by 50% by shifting from reactive feature factory approach to an opportunity-driven roadmap.
 </Good Example 1>
+
+<Bad Example 1>
+Delivered ... over five years.
+</Bad Example 1>
+<Bad Example 1 Explanation>
+The phrase "over five years" was added because the job description asked for 5+ years experience. Do not add years-of-experience phrasing from the JD.
+</Bad Example 1 Explanation>
+
+<Bad Example 2>
+Brought 4+ years of experience ...
+</Bad Example 2>
+<Bad Example 2 Explanation>
+Avoid echoing "4+ years" (or similar) from the job description in rewritten job history bullets.
+</Bad Example 2 Explanation>
 
 """
 
