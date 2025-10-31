@@ -8,6 +8,7 @@ from app.services.export_service import export_application_bytes, head_export_ch
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from urllib.parse import quote
 
 load_dotenv(override=True)
 
@@ -85,9 +86,11 @@ async def download_application_pdf(application_id: int, user=Depends(get_current
     """
     # Deprecated: proxy to export API (pdf)
     data, content_type, filename = export_application_bytes(application_id, str(user.id), "pdf")
+    disposition = f"attachment; filename*=UTF-8''{quote(filename)}; filename=\"{filename}\""
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": disposition,
         "Cache-Control": "private, no-store",
+        "Access-Control-Expose-Headers": "Content-Disposition",  # belt-and-suspenders
         "Warning": '299 - "Deprecated: use /export?format=pdf"',
     }
     return Response(content=data, media_type=content_type, headers=headers)
@@ -137,9 +140,11 @@ async def export_application(
     Supported formats map to Drive export MIME types: pdf, docx, odt, rtf, txt, html(zip), epub, md(markdown).
     """
     data, content_type, filename = export_application_bytes(application_id, str(user.id), format)
+    disposition = f"attachment; filename*=UTF-8''{quote(filename)}; filename=\"{filename}\""
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": disposition,
         "Cache-Control": "private, no-store",
+        "Access-Control-Expose-Headers": "Content-Disposition",  # belt-and-suspenders
     }
     return Response(content=data, media_type=content_type, headers=headers)
 
