@@ -170,7 +170,7 @@ def run_tailoring_process(application_id: int, user_id: str):
                 log.warning("Summary replacement failed with flexible match; prepending new summary")
                 final_resume = f"{new_summary}\n\n{updated_resume}"
         else:
-            logging.info("No existing summary found; ignoring summary replacement")
+            log.info("No existing summary found; ignoring summary replacement")
             #log.info("No existing summary found. Prepending new summary.")
             #final_resume = f"{new_summary}\n\n{updated_resume}"
         
@@ -211,7 +211,7 @@ def run_tailoring_process(application_id: int, user_id: str):
 
 
         # Optional Google Drive branch — if user has a master resume on Drive
-        gdrive_pdf_id = None
+        # gdrive_pdf_id = None
         gdrive_doc_id: Optional[str] = None
         try:
             master_id = profile_data.get("gdrive_master_resume_id") if profile_data else None
@@ -282,40 +282,43 @@ def run_tailoring_process(application_id: int, user_id: str):
                     #        log.exception("Drive prepend failed for summary")
 
                 # Export to PDF on Drive
-                try:
-                    if dup_id:
-                        gdrive_pdf_id = gdrive_utils.export_doc_to_pdf(dup_id, f"{desired_name}.pdf")
-                except Exception:
-                    log.exception("Drive export to PDF failed")
+                #try:
+                #    if dup_id:
+                #        gdrive_pdf_id = gdrive_utils.export_doc_to_pdf(dup_id, f"{desired_name}.pdf")
+                #except Exception:
+                #    log.exception("Drive export to PDF failed")
             else:
                 log.warning("No Drive document ID found; skipping Drive updates")
         except Exception:
             log.exception("Google Drive tailoring branch failed; continuing without Drive artifacts")
 
-        if gdrive_pdf_id:
-            # Add gdrive_pdf_id to the application in the database
-            log.info("Updating application in Supabase with gdrive_pdf_id...")
-            # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
-            gdrive_payload = {
-                "gdrive_pdf_resume_id": gdrive_pdf_id,
-                "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
-            }
-            try:
-                response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
-                log.info("Successfully Added gdrive_pdf_id to application")
-                err = getattr(response, "error", None)
-                if err:
-                    log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": err})
-                    raise Exception(f"Supabase update failed: {err}")
-            except Exception as e:
-                log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
-                raise Exception(f"Supabase update failed: {e}")
+        # if gdrive_pdf_id:
+        #     # Add gdrive_pdf_id to the application in the database
+        #     log.info("Updating application in Supabase with gdrive_pdf_id...")
+        #     # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
+        #     gdrive_payload = {
+        #         "gdrive_pdf_resume_id": gdrive_pdf_id,
+        #         "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        #     }
+        #     try:
+        #         response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
+        #         log.info("Successfully Added gdrive_pdf_id to application")
+        #         err = getattr(response, "error", None)
+        #         if err:
+        #             log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": err})
+        #             raise Exception(f"Supabase update failed: {err}")
+        #     except Exception as e:
+        #         log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
+        #         raise Exception(f"Supabase update failed: {e}")
 
 
 
     except Exception as e:
         log.exception("Error during tailoring process", exc_info=True)
-        supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
+        try:
+            supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
+        except Exception as update_exc:
+            log.error("Failed to update application status to 'failed'", extra={"error": str(update_exc)})
 
 
 def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> tuple[str, str]:
