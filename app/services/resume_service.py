@@ -212,6 +212,7 @@ def run_tailoring_process(application_id: int, user_id: str):
 
         # Optional Google Drive branch — if user has a master resume on Drive
         gdrive_pdf_id = None
+        gdrive_doc_id: Optional[str] = None
         try:
             master_id = profile_data.get("gdrive_master_resume_id") if profile_data else None
             if master_id:
@@ -229,6 +230,17 @@ def run_tailoring_process(application_id: int, user_id: str):
                 dup_id: Optional[str] = dup_id_val if isinstance(dup_id_val, str) else None
                 if not dup_id:
                     log.warning("Duplicate file created without id; skipping Drive edits")
+                else:
+                    # Persist the Google Doc source id to applications for future exports
+                    try:
+                        gdrive_doc_id = dup_id
+                        supabase.table("applications").update({
+                            "gdrive_doc_resume_id": gdrive_doc_id,
+                            "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
+                        }).eq("id", application_id).execute()
+                        log.info("Saved gdrive_doc_resume_id to application", extra={"application_id": application_id, "doc_id": gdrive_doc_id})
+                    except Exception as e:
+                        log.exception("Failed to save gdrive_doc_resume_id to application; continuing", extra={"error": str(e)})
 
                 # Apply per-history replacements on the Drive doc
                 for history in job_histories_to_rewrite:

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from app.security import get_current_user
 from app.models.schemas import ApplicationCreate, ApplicationResponse
 from app.services.resume_service import run_tailoring_process
 from app.services import google_drive_service as gds
+from app.services.export_service import export_application_bytes, head_export_check
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ supabase_service_key = os.environ.get("SUPABASE_SERVICE_KEY")
 if not supabase_url or not supabase_service_key:
     raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set")
 supabase: Client = create_client(supabase_url, supabase_service_key)
+
 
 @router.post("/", response_model=ApplicationResponse, status_code=202)
 async def create_application(
@@ -67,51 +69,100 @@ async def get_application(application_id: int, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=404, detail="Application not found")
 
-@router.get("/{application_id}/pdf")
+@router.get(
+    "/{application_id}/pdf",
+    summary="Download tailored resume as PDF (deprecated)",
+    description=(
+        "Deprecated: use /applications/{application_id}/export?format=pdf.\n\n"
+        "Exports the stored Google Doc source to PDF."
+    ),
+)
 async def download_application_pdf(application_id: int, user=Depends(get_current_user)):
     """
     Stream the tailored resume PDF to the user's browser.
     Requires that the application belongs to the authenticated user and that
     gdrive_pdf_resume_id is present on the application row.
     """
-    # Load the application and authorize access
-    app_row = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
-    if not app_row:
-        raise HTTPException(status_code=404, detail="Application not found")
-    if app_row.get("user_id") != str(user.id):
-        raise HTTPException(status_code=403, detail="Not authorized to download this application")
-
-    pdf_id = app_row.get("gdrive_pdf_resume_id")
-    if not pdf_id:
-        raise HTTPException(status_code=404, detail="No PDF available for this application yet")
-
-    # Use the server-owned service account to fetch bytes from Drive
-    drive = gds.build_server_drive_service()
-    meta = gds.get_file_metadata(drive, pdf_id, fields="id, name, mimeType, size")
-    filename = (meta.get("name") or f"application-{application_id}.pdf").replace("\n", "").strip()
-    content_type = "application/pdf"  # meta.get("mimeType") is typically application/pdf for uploaded PDFs
-
-    # Download bytes and return as an attachment
-    data = gds.download_file_bytes(drive, pdf_id)
+    # Deprecated: proxy to export API (pdf)
+    data, content_type, filename = export_application_bytes(application_id, str(user.id), "pdf")
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "private, no-store",
+        "Warning": '299 - "Deprecated: use /export?format=pdf"',
     }
     return Response(content=data, media_type=content_type, headers=headers)
 
-@router.head("/{application_id}/pdf")
+@router.head(
+    "/{application_id}/pdf",
+    summary="Check PDF export readiness (deprecated)",
+    description=(
+        "Deprecated: use /applications/{application_id}/export?format=pdf (HEAD)."
+    ),
+)
 async def head_application_pdf(application_id: int, user=Depends(get_current_user)):
     """
     Lightweight readiness check for the tailored PDF.
     - 204 No Content if available
     - 404 if not available or not authorized
     """
-    app_row = supabase.table("applications").select("id,user_id,gdrive_pdf_resume_id").eq("id", application_id).single().execute().data
-    if not app_row or app_row.get("user_id") != str(user.id):
-        # Hide existence details for unauthorized users
-        raise HTTPException(status_code=404, detail="Not found")
+    # Deprecated: proxy to export API (pdf)
+    head_export_check(application_id, str(user.id), "pdf")
+    headers = {"Warning": '299 - "Deprecated: use /export?format=pdf"'}
+    return Response(status_code=204, headers=headers)
 
-    if not app_row.get("gdrive_pdf_resume_id"):
-        raise HTTPException(status_code=404, detail="No PDF")
+@router.get(
+    "/{application_id}/export",
+    summary="Export tailored resume in various formats",
+    description=(
+        "Export the stored Google Doc source to a chosen format.\n\n"
+        "Supported formats (Drive export MIME types):\n"
+        "- pdf: application/pdf (.pdf)\n"
+        "- docx: application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)\n"
+        "- odt: application/vnd.oasis.opendocument.text (.odt)\n"
+        "- rtf: application/rtf (.rtf)\n"
+        "- txt: text/plain (.txt)\n"
+        "- html: application/zip (.zip) – Web Page (HTML) bundle\n"
+        "- epub: application/epub+zip (.epub)\n"
+        "- md/markdown: text/markdown (.md)\n"
+        "Note: Conversion requires a Google Doc as the source."
+    ),
+)
+async def export_application(
+    application_id: int,
+    format: str = Query(..., description="Export format: pdf, docx, odt, rtf, txt, html, epub, md/markdown"),
+    user=Depends(get_current_user),
+):
+    """
+    Export the tailored resume Google Doc to a chosen format.
+    Supported formats map to Drive export MIME types: pdf, docx, odt, rtf, txt, html(zip), epub, md(markdown).
+    """
+    data, content_type, filename = export_application_bytes(application_id, str(user.id), format)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "private, no-store",
+    }
+    return Response(content=data, media_type=content_type, headers=headers)
 
+@router.head(
+    "/{application_id}/export",
+    summary="Export readiness check",
+    description=(
+        "HEAD readiness for export availability for a given format. \n"
+        "Returns: 204 when available; 404 when not found/unauthorized;\n"
+        "415 when format unsupported; 409 when source not convertible."
+    ),
+)
+async def head_export_application(
+    application_id: int,
+    format: str = Query(..., description="Export format: pdf, docx, odt, rtf, txt, html, epub, md/markdown"),
+    user=Depends(get_current_user),
+):
+    """
+    Readiness check for export availability for a given format.
+    - 204 when available
+    - 404 when not found or unauthorized
+    - 415 when format is unsupported
+    - 409 when source is not convertible to requested format
+    """
+    head_export_check(application_id, str(user.id), format)
     return Response(status_code=204)
