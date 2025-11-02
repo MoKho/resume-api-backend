@@ -1,5 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict
 from typing import List, Optional, Dict, Any
 
 
@@ -144,5 +145,33 @@ class GoogleDriveOpenFileResponse(BaseModel):
     source: GoogleDriveFileRef
     destination: GoogleDriveFileRef
     content: str
+
+
+# --- Structured Output Schemas for LLM Extraction ---
+
+class ResumeHistoryItem(BaseModel):
+    """Single resume history entry extracted by the LLM.
+
+    Fields mirror the expected output of the resume history extractor agent.
+    """
+    history_job_title: str
+    history_company_name: str
+    # Entire achievements/responsibilities block as a single string
+    history_job_achievements: str
+
+    # Ensure additionalProperties: false in generated JSON Schema
+    model_config = ConfigDict(extra='forbid')
+
+
+class ResumeHistoryExtraction(BaseModel):
+    """Top-level schema for structured extraction of resume history.
+
+    The extractor agent should return an object with a `jobs` array of
+    ResumeHistoryItem. We forbid additional properties to keep schema strict.
+    """
+    jobs: List[ResumeHistoryItem]
+
+    # Ensure additionalProperties: false in generated JSON Schema
+    model_config = ConfigDict(extra='forbid')
 
 

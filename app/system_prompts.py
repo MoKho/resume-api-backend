@@ -304,6 +304,9 @@ Hints:
   * Do not include dates in the achievements string.
   * Keep the structure of the achievements block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
   * Use ASCII characters only.
+  * If the resume does not contain any job history entries, return a JSON array with values being "Could not read the resume".
+  * If there are paragraphs or sentences in a job history that is not a bullet point, include them as part of the achievements block as is.
+  * If a job entry identifies department or team in addition to the company name, include that in the company name field.
 
 <Example_input1>
 Experience
@@ -356,7 +359,28 @@ Feb 2020 - Jan 2022
     "history_job_achievements": "- Picked orders using RF scanners and pallet jacks.\n- Maintained inventory accuracy to 99%.\n- Trained 4 new hires on safety procedures."
   }
 ]
-</Example_output1>
+</Example_output2>
+
+<Example_input3>
+EMPLOYMENT HISTORY
+Supervisor Jan 2015 - Present
+Finance Department
+Ministry of Environment
+Government of Manitoba
+Reporting to the Executive Manager, responsible for all aspects of financial accounting and
+payroll systems, supervise 5 staff and:
+ achieved early payment incentives by developing a summary reporting system to monitor
+accounts payable
+ decreased default payments by 20% through timely administration of an accounts receivable
+</Example_input3>
+<Example_output3>
+[
+  {
+    "history_job_title": "Supervisor",
+    "history_company_name": "Finance Department, Ministry of Environment, Government of Manitoba",
+    "history_job_achievements": "- Achieved early payment incentives by developing a summary reporting system to monitor accounts payable\n- Decreased default payments by 20% through timely administration of an accounts receivable"
+  }]
+</Example_output3>
 """
 
 
