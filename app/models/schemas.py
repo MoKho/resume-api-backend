@@ -145,6 +145,7 @@ class GoogleDriveOpenFileResponse(BaseModel):
     source: GoogleDriveFileRef
     destination: GoogleDriveFileRef
     content: str
+    content_md: str
 
 
 # --- Structured Output Schemas for LLM Extraction ---

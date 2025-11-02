@@ -398,14 +398,9 @@ def export_google_doc_text(drive_service, file_id: str) -> str:
 def export_google_doc_bytes(drive_service, file_id: str, export_mime: str) -> bytes:
     """Export a Google Doc to the specified mime type and return raw bytes."""
     try:
-        try:
-            # Preferred: include supportsAllDrives for shared-drive support
-            data = drive_service.files().export(fileId=file_id, mimeType=export_mime, supportsAllDrives=True).execute()
-        except TypeError:
-            # Some googleapiclient versions don't accept supportsAllDrives on export()
-            # Retry without the kwarg (best-effort fallback).
-            log.info("export() does not accept supportsAllDrives param, retrying without it", extra={"file_id": file_id, "export_mime": export_mime})
-            data = drive_service.files().export(fileId=file_id, mimeType=export_mime).execute()
+        # Call export without supportsAllDrives for compatibility with googleapiclient versions
+        # that do not accept that kwarg on files().export().
+        data = drive_service.files().export(fileId=file_id, mimeType=export_mime).execute()
 
         if isinstance(data, bytes):
             return data
