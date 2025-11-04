@@ -16,6 +16,8 @@ class ApplicationResponse(BaseModel):
     status: str
     target_job_description: str
     final_resume_text: Optional[str] = None
+    # ID of the Google Doc source for the tailored resume (Drive file ID)
+    gdrive_doc_resume_id: Optional[str] = None
     # Consolidated JSON of the specific resume sections the workflow updated.
     # Example shape:
     # {
