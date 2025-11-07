@@ -157,7 +157,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
         # Also generate a new skills section
         log.info("Generating new skills section...")
-        old_skills = profile_data.get('base_skills_text')
+        old_skills = str(profile_data.get('base_skills_text'))
         new_skills = llm_service.generate_skills_section(updated_resume, summarized_jd, old_skills)
 
         # Step 6: Assemble the final resume with conditional logic

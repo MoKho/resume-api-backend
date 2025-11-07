@@ -306,6 +306,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,
+        clean_to_ascii=True,
         custom_settings = custom_settings
     )
 
@@ -320,6 +321,7 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
         workload_difficulty='professional_summary_rewrite_agent',
         system_prompt=system_prompts.professional_summary_rewriter_agent_system_prompt,
         user_prompt=user_prompt,
+        clean_to_ascii=True,
         custom_settings=custom_settings
     )
 
@@ -334,6 +336,7 @@ def generate_skills_section(updated_resume: str, summarized_job_description: str
         workload_difficulty='skills-rewriter-agent',
         system_prompt=system_prompts.skills_rewriter_agent_system_prompt,
         user_prompt=user_prompt,
+        clean_to_ascii=True,
         custom_settings=custom_settings
     )
 
@@ -503,7 +506,7 @@ def extract_resume_skills(resume_text: str) -> str:
             workload_difficulty='resume-skills-extractor',
             system_prompt=system_prompts.resume_skills_extractor_agent_system_prompt,
             user_prompt=resume_text,
-            clean_to_ascii=True
+            clean_to_ascii=False
         )
         log.info("Successfully extracted skills section")
         return response_str
