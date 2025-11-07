@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.security import get_current_user
 from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse, ResumeCheckResponse, ResumeTextResponse
-from app.models.schemas import ResumeSummaryResponse
+from app.models.schemas import ResumeSummaryResponse, ResumeSkillsResponse
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest, ResumeCheckEnqueueResponse
@@ -100,6 +100,26 @@ async def get_my_summary(user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
+@router.get("/skills", response_model=ResumeSkillsResponse)
+async def get_my_skills(user=Depends(get_current_user)):
+    """
+    Return the current user's stored skills section (base_skills_text).
+    """
+    user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
+    try:
+        profile = supabase.table("profiles").select("base_skills_text").eq("id", user_id).single().execute().data
+        if not profile:
+            log.warning("Profile not found when requesting skills")
+            raise HTTPException(status_code=404, detail="Profile not found")
+        log.info("Returning skills section")
+        return {"skills": profile.get("base_skills_text")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
 @router.post("/process-resume", response_model=List[JobHistoryResponse])
 async def process_resume(
     resume_data: ResumeUpload,
@@ -125,6 +145,15 @@ async def process_resume(
             log.error("Error extracting professional summary: %s", str(e))
             raise HTTPException(status_code=500, detail="Error extracting professional summary")
 
+        # Extract skills section
+        try:
+            skills_text = llm_service.extract_resume_skills(resume_data.resume_text)
+            log.info("Extracted skills section")
+            log.info(skills_text)
+        except Exception as e:
+            log.error("Error extracting skills: %s", str(e))
+            raise HTTPException(status_code=500, detail="Error extracting skills section")
+
         try:
             parsed_jobs = llm_service.parse_resume_to_json(resume_data.resume_text)
         except Exception as e:
@@ -146,11 +175,17 @@ async def process_resume(
         # Bulk insert the new, correctly formatted job histories
         inserted_data = supabase.table("job_histories").insert(jobs_to_insert).execute().data
 
-        # Update the professional summary in the user's profile
-        supabase.table("profiles").update({"base_summary_text": professional_summary}).eq("id", user_id).execute()
+        # Merge profile updates into a single payload and perform one update call
+        profile_update = {}
+        if professional_summary is not None:
+            profile_update["base_summary_text"] = professional_summary
+        if skills_text is not None:
+            profile_update["base_skills_text"] = skills_text
+        if resume_data.resume_text is not None:
+            profile_update["base_resume_text"] = resume_data.resume_text
 
-        # Also, update the base_resume_text in the user's profile
-        supabase.table("profiles").update({"base_resume_text": resume_data.resume_text}).eq("id", user_id).execute()
+        if profile_update:
+            supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
 
         log.info("Inserted parsed job histories", extra={"inserted_count": len(inserted_data) if inserted_data else 0})
         return inserted_data

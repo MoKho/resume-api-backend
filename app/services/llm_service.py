@@ -64,6 +64,13 @@ model_mapping = {
         {"provider": "cerebras", "model": "llama3.1-8b"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ],
+    "resume-skills-extractor": [
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
+        {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        {"provider": "cerebras", "model": "llama3.1-8b"},
+        {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ],
     "resume-summary-extractor": [
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
 
@@ -85,6 +92,12 @@ model_mapping = {
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ]
+    ,"skills-rewriter-agent": [
+        {"provider": "groq", "model": "openai/gpt-oss-120b"},
+        {"provider": "cerebras", "model": "gpt-oss-120b"},
+        {"provider": "sambanova", "model": "gpt-oss-120b"},
+        {"provider": "gemini", "model": "models/gemini-2.5-pro"}
     ]
 }
 
@@ -310,6 +323,20 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
         custom_settings=custom_settings
     )
 
+def generate_skills_section(updated_resume: str, summarized_job_description: str, old_skills: str) -> str:
+    log = bind_logger(logger, {"agent_name": "generate_skills_section"})
+
+    log.info("LLM Service: Generating tailored skills section")
+    custom_settings = {"reasoning_effort": "medium", "temperature": 0.2}
+    user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>\n\n<old_skills>\n{old_skills}\n</old_skills>"
+    return call_llm_provider(
+        provider_name='groq',
+        workload_difficulty='skills-rewriter-agent',
+        system_prompt=system_prompts.skills_rewriter_agent_system_prompt,
+        user_prompt=user_prompt,
+        custom_settings=custom_settings
+    )
+
 def score_resume(resume: str, qualifications: str) -> str:
     """
     Analyze a resume against a list of qualifications and return a csv textual comparison.
@@ -464,6 +491,25 @@ def extract_professional_summary(resume_text: str) -> str:
 
     except Exception as e:
         log.error(f"An error occurred during professional summary extraction: {e}")
+        raise
+
+def extract_resume_skills(resume_text: str) -> str:
+    log = bind_logger(logger, {"agent_name": "extract_resume_skills"})
+
+    log.info("LLM Service: Extracting skills from resume...")
+    try:
+        response_str = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='resume-skills-extractor',
+            system_prompt=system_prompts.resume_skills_extractor_agent_system_prompt,
+            user_prompt=resume_text,
+            clean_to_ascii=True
+        )
+        log.info("Successfully extracted skills section")
+        return response_str
+
+    except Exception as e:
+        log.error(f"An error occurred during skills extraction: {e}")
         raise
 
 def extract_job_qualifications(summarized_job_description: str) -> str:

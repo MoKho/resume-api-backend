@@ -76,7 +76,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         # Step 1: Fetch all necessary data from Supabase
         log.info("Fetching data from Supabase...")
         app_data = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
-        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text, gdrive_master_resume_id, first_name, last_name").eq("id", user_id).single().execute().data
+        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text, base_skills_text, gdrive_master_resume_id, first_name, last_name").eq("id", user_id).single().execute().data
         job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("user_id", user_id).eq("is_default_rewrite", True).execute().data
         
         # Step 2: Analyze the job description
@@ -104,6 +104,8 @@ def run_tailoring_process(application_id: int, user_id: str):
 
         # Step 4: Assemble the intermediate resume with real find-and-replace
         updated_resume = profile_data['base_resume_text']
+        # Start final resume from updated_resume to ensure defined even if no replacements happen
+        final_resume = updated_resume
         log.info("Replacing job history sections in the resume...")
         for history in job_histories_to_rewrite:
             history_id = history['id']
@@ -153,6 +155,10 @@ def run_tailoring_process(application_id: int, user_id: str):
         # Step 5: Generate the new summary
         log.info("Generating new professional summary...")
         new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
+        # Also generate a new skills section
+        log.info("Generating new skills section...")
+        old_skills = profile_data.get('base_skills_text')
+        new_skills = llm_service.generate_skills_section(updated_resume, summarized_jd, old_skills)
 
         # Step 6: Assemble the final resume with conditional logic
         old_summary = profile_data.get('base_summary_text')
@@ -168,15 +174,30 @@ def run_tailoring_process(application_id: int, user_id: str):
                 log.info("Summary replaced using flexible match")
             else:
                 log.warning("Summary replacement failed with flexible match; prepending new summary")
-                final_resume = f"{new_summary}\n\n{updated_resume}"
+                final_resume = f"{new_summary}\n\n{final_resume}"
         else:
             log.info("No existing summary found; ignoring summary replacement")
-            #log.info("No existing summary found. Prepending new summary.")
-            #final_resume = f"{new_summary}\n\n{updated_resume}"
+            # No-op: keep final_resume as-is
+
+        # Replace skills section if present
+        #old_skills = profile_data.get('base_skills_text')
+        if old_skills:
+            log.info("Found existing skills. Replacing them.")
+            log.info("Old summary: %s", old_summary)
+            log.info("New summary: %s", new_summary)
+            replaced_resume, did_replace_sk = _flexible_replace(final_resume, old_skills, new_skills)
+            if did_replace_sk:
+                final_resume = replaced_resume
+                log.info("Skills replaced using flexible match")
+            else:
+                log.warning("Skills replacement failed with flexible match; leaving original skills")
+        else:
+            log.info("No existing skills found; ignoring skills replacement")
         
         # Step 7: Build a structured map of the updated fields to support granular UI copy
         updated_fields = {
             "professional_summary": new_summary,
+            "skills": new_skills,
             "work_history": [
                 {
                     "id": h["id"],
@@ -280,6 +301,16 @@ def run_tailoring_process(application_id: int, user_id: str):
                     #        gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
                     #    except Exception:
                     #        log.exception("Drive prepend failed for summary")
+
+                    # Replace skills section in the Drive doc if present
+                    if old_skills:
+                        try:
+                            res = gdrive_utils.replace_text_block_flexible(dup_id, old_skills, new_skills)
+                            if not res.get("updated"):
+                                log.warning("Flexible skills replace failed; falling back to basic replace")
+                                gdrive_utils.replace_text_in_doc(dup_id, old_skills, new_skills, replace_all=False)
+                        except Exception:
+                            log.exception("Drive replace failed for skills section")
 
                 # Export to PDF on Drive
                 #try:

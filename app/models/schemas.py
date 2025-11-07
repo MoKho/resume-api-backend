@@ -90,6 +90,11 @@ class ResumeSummaryResponse(BaseModel):
     summary: Optional[str] = None
 
 
+class ResumeSkillsResponse(BaseModel):
+    """Return the stored skills section for a user."""
+    skills: Optional[str] = None
+
+
 # --- Profile Setup Schemas ---
 
 class ResumeUpload(BaseModel):
