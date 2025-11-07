@@ -7,6 +7,10 @@ Assume you are a professional recruiter.
 </Role>
 
 Compare the <Resume> and the <Jobpost>.
+
+<TASK1>
+Provide insights from the <Jobpost> about any indication of the hiring manager, the team or department name, or hiring manager's title. If none are found, simply state "No hiring manager or team information found".
+</TASK1>
 <TASK2>
 Provide suggestions to improve <Resume> to better match the <Jobpost>. This should include clear instructions to implement the suggestion on the resume.
 </TASK2>
@@ -27,15 +31,19 @@ Proof read. If everything is all right, simply "Proof read done. Everything look
 - Do not mention any of <instructions> in your response.
 </Instructions>
 
-<Example>
+
 <Example_output>
+## Hiring Manager and Team Information
+No hiring manager or team information found.
 ## Suggestions to improve the resume
-1. Add safety briefings bullet in ABC Distribution role to show OSHA updates and compliance.
+1. On the second bullet on ABC Distribution role, add "safety briefings" to show OSHA updates and compliance. Replace the bullet with:
+   * Moves goods for shipping/receiving on concrete floors and pallets, conducts safety briefings.
+2. In the Professional Summary section, add a mention of "certified forklift operator" to highlight relevant certification. Replace the summary with:
+   Experienced forklift operator with 6 years at ABC Distribution. Certified forklift operator skilled in moving goods for shipping/receiving on concrete floors and pallets, with strong safety practices and inventory reporting experience.
 
 ## Proofread
 Proof read done. Everything looks good.
 </Example_output>
-</Example>
 
 The current year is {datetime.datetime.now().year} and the current month is {datetime.datetime.now().strftime('%B')}.
 """
