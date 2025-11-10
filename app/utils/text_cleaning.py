@@ -60,6 +60,16 @@ def normalize_to_ascii(text: str) -> Tuple[bool, str, Dict[str, Dict[str, Any]]]
         "\u2012": "-",
         "\u2013": "-",
         "\u2014": "-",
+        # Common math and arrow symbols often produced by LLMs
+        "\u00D7": "x",   # multiplication sign ×
+        "\u00F7": "/",   # division sign ÷
+        "\u2192": "->",  # rightwards arrow →
+        "\u2190": "<-",  # leftwards arrow ←
+        "\u2194": "<->", # left-right arrow ↔
+        "\u21D2": "=>",  # rightwards double arrow ⇒
+        "\u21D0": "<=",  # leftwards double arrow ⇐
+        "\u21D4": "<=>", # left-right double arrow ⇔
+
         "\u2015": "-",
         "\u2212": "-",
 
