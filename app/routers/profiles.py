@@ -2,11 +2,18 @@
 
 
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import List
 from app.security import get_current_user
-from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse, ResumeCheckResponse, ResumeTextResponse
-from app.models.schemas import ResumeSummaryResponse, ResumeSkillsResponse
+from app.models.schemas import (
+    ResumeUpload,
+    JobHistoryUpdate,
+    JobHistoryResponse,
+    ProfileResponse,
+    ResumeCheckResponse,
+    ResumeTextResponse,
+)
+from app.models.schemas import ResumeSummaryResponse, ResumeSkillsResponse, ResumeFileUploadResponse, GoogleDriveFileRef
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest, ResumeCheckEnqueueResponse
@@ -15,6 +22,13 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.logging_config import get_logger, bind_logger, configure_logging
+from app.services.google_drive_service import (
+    build_server_drive_service,
+    upload_bytes_as_google_doc,
+    upsert_profile_master_resume_id,
+    export_google_doc_text,
+    export_google_doc_bytes,
+)
 
 configure_logging()
 
@@ -229,6 +243,81 @@ async def update_job_histories(
                 updated_records.append(result[0])
             
     return updated_records
+
+
+@router.post("/upload-resume", response_model=ResumeFileUploadResponse)
+async def upload_resume_file(file: UploadFile = File(...), user=Depends(get_current_user)):
+    """Upload a resume file and follow the same flow as open-file:
+
+    - Validate extension (pdf, docx, doc, txt, md)
+    - Upload bytes to the server's Google Drive converting to a Google Doc
+    - Update `profiles.gdrive_master_resume_id`
+    - Export and return plain text + markdown
+    """
+    user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "upload-resume", "user_id": user_id})
+
+    # Validate extension and determine source mime
+    filename = file.filename or "uploaded"
+    name_lower = filename.lower()
+    ext = name_lower.rsplit(".", 1)[-1] if "." in name_lower else ""
+    allowed = {"pdf", "docx", "doc", "txt", "md"}
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: pdf, docx, doc, txt, md")
+
+    ext_to_mime = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+        "txt": "text/plain",
+        "md": "text/markdown",
+    }
+    source_mime = ext_to_mime.get(ext, "application/octet-stream")
+
+    try:
+        raw_bytes = await file.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=400, detail="Empty file upload")
+
+        server_drive = build_server_drive_service()
+        dest_name = f"{user_id}-master-resume"
+
+        # Always convert to a Google Doc for the master resume copy
+        log.info("upload-resume: uploading bytes as Google Doc", extra={"dest_name": dest_name, "source_mime": source_mime})
+        dest_file = upload_bytes_as_google_doc(server_drive, raw_bytes, source_mime, dest_name)
+        dest_file_id = dest_file.get("id")
+        if not dest_file_id:
+            raise HTTPException(status_code=500, detail="Failed to create Google Doc for uploaded file")
+
+        # Update profile with master resume file id
+        upsert_profile_master_resume_id(user_id, dest_file_id)
+        log.info("upload-resume: profile updated with gdrive_master_resume_id", extra={"dest_file_id": dest_file_id})
+
+        # Export text and markdown
+        content = export_google_doc_text(server_drive, dest_file_id)
+        content_md = ""
+        try:
+            md_bytes = export_google_doc_bytes(server_drive, dest_file_id, "text/markdown")
+            content_md = md_bytes.decode("utf-8", errors="ignore")
+        except Exception as e:
+            log.warning("upload-resume: markdown export failed", extra={"error": str(e)})
+
+        response = ResumeFileUploadResponse(
+            destination=GoogleDriveFileRef(
+                fileId=dest_file_id,
+                mimeType=dest_file.get("mimeType"),
+                name=dest_file.get("name"),
+            ),
+            content=content,
+            content_md=content_md,
+        )
+        log.info("upload-resume: done", extra={"dest_file_id": dest_file_id})
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("upload-resume: unexpected error", extra={"error": str(e)})
+        raise HTTPException(status_code=500, detail=f"Failed to upload and process file: {e}")
 
 
 

@@ -155,6 +155,16 @@ class GoogleDriveOpenFileResponse(BaseModel):
     content_md: str
 
 
+class ResumeFileUploadResponse(BaseModel):
+    """Response for uploading a resume file directly to the server.
+
+    Mirrors the output shape of Google Drive open-file but without a source ref.
+    """
+    destination: GoogleDriveFileRef
+    content: str
+    content_md: str
+
+
 # --- Structured Output Schemas for LLM Extraction ---
 
 class ResumeHistoryItem(BaseModel):
