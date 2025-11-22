@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import re
+import hashlib
 from typing import Optional
 import datetime
 from zoneinfo import ZoneInfo
@@ -34,6 +35,8 @@ supabase: Client = create_client(supabase_url, supabase_service_key)
 def run_tailoring_process(application_id: int, user_id: str):
     log = bind_logger(logger, {"agent_name": "tailoring_worker", "user_id": user_id, "application_id": application_id})
     log.info("Starting tailoring process")
+
+    tailor_debug_verbose = os.environ.get("TAILOR_DEBUG_VERBOSE", "false").lower() in ("1", "true", "yes")
     
     # --- Flexible replace helpers ---
     def _whitespace_pattern() -> str:
@@ -125,6 +128,25 @@ def run_tailoring_process(application_id: int, user_id: str):
             
             # Get the new, AI-generated text.
             new_rewritten_text = rewritten_histories[history_id]
+
+            if tailor_debug_verbose:
+                # Log diagnostics about original vs rewritten blocks for this history
+                orig = original_achievements_block or ""
+                new = new_rewritten_text or ""
+                orig_hash = hashlib.sha256(orig.encode("utf-8", errors="ignore")).hexdigest()
+                new_hash = hashlib.sha256(new.encode("utf-8", errors="ignore")).hexdigest()
+                log.debug(
+                    "History block diagnostics",
+                    extra={
+                        "history_id": history_id,
+                        "orig_len": len(orig),
+                        "new_len": len(new),
+                        "orig_hash": orig_hash,
+                        "new_hash": new_hash,
+                        "orig_preview": orig[:200],
+                        "new_preview": new[:200],
+                    },
+                )
             #log.info("Original achievements block: %s", original_achievements_block)
             #log.info("New rewritten text: %s", new_rewritten_text)
             #log.info("Replacing original achievements block with rewritten text", extra={"New history": new_rewritten_text})
@@ -133,9 +155,8 @@ def run_tailoring_process(application_id: int, user_id: str):
             # Before performing replacement:
             if original_achievements_block not in updated_resume:
                 log.warning(
-                    "Achievements block not found in resume (exact match). "
-                    "len_block=%d len_resume=%d",
-                    len(original_achievements_block), len(updated_resume)
+                    "Achievements block not found in resume (exact match). len_block=%d len_resume=%d",
+                    len(original_achievements_block), len(updated_resume),
                 )
                 # Optional: perform normalized check to confirm newline/whitespace mismatch
                 def _norm(s: str) -> str:
@@ -143,12 +164,59 @@ def run_tailoring_process(application_id: int, user_id: str):
                         s.replace("\r\n", "\n").replace("\r", "\n")
                         .replace("\u00A0", " ").replace("\u200B", "").replace("\ufeff", "")
                     )
-                if _norm(original_achievements_block) in _norm(updated_resume):
-                    log.info("Normalized match found (newline/whitespace/punctuation normalization fixes it)")
+
+                norm_orig = _norm(original_achievements_block)
+                norm_resume = _norm(updated_resume)
+                found_norm = norm_orig in norm_resume
+                log.info(
+                    "Normalized presence check",
+                    extra={
+                        "history_id": history_id,
+                        "found_normalized": found_norm,
+                        "norm_orig_len": len(norm_orig),
+                        "norm_resume_len": len(norm_resume),
+                    },
+                )
+
+                if tailor_debug_verbose and found_norm:
+                    # Log where the normalized block appears and a short context window around it
+                    idx = norm_resume.find(norm_orig)
+                    ctx_start = max(0, idx - 80)
+                    ctx_end = min(len(norm_resume), idx + len(norm_orig) + 80)
+                    log.debug(
+                        "Normalized match context",
+                        extra={
+                            "history_id": history_id,
+                            "index": idx,
+                            "context": norm_resume[ctx_start:ctx_end],
+                        },
+                    )
             # Try flexible replacement that tolerates whitespace differences
             replaced_resume, did_replace = _flexible_replace(updated_resume, original_achievements_block, new_rewritten_text)
             if not did_replace:
                 log.warning("Flexible replacement failed for job history block; leaving original text", extra={"history_id": history_id})
+                if tailor_debug_verbose:
+                    # Try to find best-effort alignment for debugging: first differing index between
+                    # updated_resume and a naive replacement attempt in a normalized space.
+                    def _first_diff(a: str, b: str) -> int:
+                        for i, (ca, cb) in enumerate(zip(a, b)):
+                            if ca != cb:
+                                return i
+                        return min(len(a), len(b))
+
+                    naive = updated_resume.replace(original_achievements_block, new_rewritten_text)
+                    diff_idx = _first_diff(updated_resume, naive)
+                    ctx_start = max(0, diff_idx - 80)
+                    ctx_end = min(len(updated_resume), diff_idx + 80)
+                    log.debug(
+                        "Naive replace diff context",
+                        extra={
+                            "history_id": history_id,
+                            "diff_index": diff_idx,
+                            "before_context": updated_resume[ctx_start:ctx_end],
+                            "after_context": naive[ctx_start:ctx_end],
+                        },
+                    )
             else:
                 updated_resume = replaced_resume
 
@@ -223,9 +291,10 @@ def run_tailoring_process(application_id: int, user_id: str):
         try:
             response = supabase.table("applications").update(update_payload).eq("id", application_id).execute()
             log.info("Successfully completed tailoring")
-            if hasattr(response, "error") and response.error:
-                log.error("Failed to update application in Supabase", extra={"error": response.error})
-                raise Exception(f"Supabase update failed: {response.error}")
+            err = getattr(response, "error", None)
+            if err:
+                log.error("Failed to update application in Supabase", extra={"error": err})
+                raise Exception(f"Supabase update failed: {err}")
         except Exception as e:
             log.error("Exception occurred while updating application in Supabase", extra={"error": str(e)})
             raise Exception(f"Supabase update failed: {e}")

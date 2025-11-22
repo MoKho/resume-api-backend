@@ -22,7 +22,8 @@ Notes:
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+import os
 import re
 
 from fastapi import HTTPException
@@ -185,47 +186,82 @@ def _pattern_from_block_docs(block: str) -> re.Pattern:
     return re.compile(pattern, flags=re.DOTALL | re.MULTILINE)
 
 
+def _append_paragraph_elements(
+    para: dict,
+    flat_parts: List[str],
+    segments: List[dict],
+    flat_offset: int,
+    in_table: bool,
+) -> int:
+    """Append text runs from a paragraph to the flattened buffers.
+
+    Returns the new flat_offset after appending.
+    """
+    for pe in para.get("elements", []) or []:
+        text_run = pe.get("textRun")
+        if not text_run:
+            continue
+        text = text_run.get("content") or ""
+        if not text:
+            continue
+        doc_start = pe.get("startIndex")
+        doc_end = pe.get("endIndex")
+        if not isinstance(doc_start, int) or not isinstance(doc_end, int):
+            # If indices are missing, skip mapping this run to avoid corrupting ranges
+            continue
+        flat_start = flat_offset
+        flat_end = flat_start + len(text)
+        flat_parts.append(text)
+        segments.append({
+            "flat_start": flat_start,
+            "flat_end": flat_end,
+            "doc_start": doc_start,
+            "doc_end": doc_end,
+            "text": text,
+            "in_table": in_table,
+        })
+        flat_offset = flat_end
+    return flat_offset
+
+
 def _flatten_doc_text_with_map(document: dict) -> tuple[str, list[dict]]:
     """Flatten the Google Doc body text into a single string and map offsets to doc indices.
+
+    This version recursively traverses top-level paragraphs as well as tables, so text inside
+    table cells is also searchable.
 
     Returns (flat_text, segments) where each segment is a dict with:
       - flat_start, flat_end: offsets in flat_text
       - doc_start, doc_end: corresponding document indices for that text run
+      - in_table: bool indicating whether the text came from within a table
     """
     body = (document or {}).get("body", {})
     content = body.get("content", []) or []
-    flat_parts: list[str] = []
-    segments: list[dict] = []
+    flat_parts: List[str] = []
+    segments: List[dict] = []
     flat_offset = 0
 
     for el in content:
+        # Top-level paragraph
         para = el.get("paragraph")
-        if not para:
-            # Could be a table or section break; ignore for now
+        if para:
+            flat_offset = _append_paragraph_elements(para, flat_parts, segments, flat_offset, in_table=False)
             continue
-        for pe in para.get("elements", []) or []:
-            text_run = pe.get("textRun")
-            if not text_run:
-                continue
-            text = text_run.get("content") or ""
-            if not text:
-                continue
-            doc_start = pe.get("startIndex")
-            doc_end = pe.get("endIndex")
-            if not isinstance(doc_start, int) or not isinstance(doc_end, int):
-                # If indices are missing, skip mapping this run to avoid corrupting ranges
-                continue
-            flat_start = flat_offset
-            flat_end = flat_start + len(text)
-            flat_parts.append(text)
-            segments.append({
-                "flat_start": flat_start,
-                "flat_end": flat_end,
-                "doc_start": doc_start,
-                "doc_end": doc_end,
-                "text": text,
-            })
-            flat_offset = flat_end
+
+        # Tables
+        table = el.get("table")
+        if table:
+            for row in table.get("tableRows", []) or []:
+                for cell in row.get("tableCells", []) or []:
+                    for cell_el in cell.get("content", []) or []:
+                        cell_para = cell_el.get("paragraph")
+                        if cell_para:
+                            flat_offset = _append_paragraph_elements(
+                                cell_para, flat_parts, segments, flat_offset, in_table=True
+                            )
+            continue
+
+        # Other element types (e.g., section breaks) are ignored for flattening
 
     return ("".join(flat_parts), segments)
 
@@ -288,6 +324,8 @@ def replace_text_block_flexible(
     drive = gds.build_drive_service(creds)
     docs = gds.build_docs_service(creds)
 
+    docs_debug_verbose = bool(str(os.environ.get("DOCS_DEBUG_VERBOSE", "false")).lower() in ("1", "true", "yes"))
+
     # Ensure it's a Google Doc
     meta = gds.get_file_metadata(drive, file_id, fields="id, mimeType")
     if meta.get("mimeType") != "application/vnd.google-apps.document":
@@ -295,6 +333,19 @@ def replace_text_block_flexible(
 
     doc = docs.documents().get(documentId=file_id).execute()
     flat_text, segments = _flatten_doc_text_with_map(doc)
+
+    if docs_debug_verbose:
+        total_len = len(flat_text)
+        in_table_chars = sum((seg["flat_end"] - seg["flat_start"]) for seg in segments if seg.get("in_table"))
+        log.info(
+            "Docs flatten stats",
+            extra={
+                "file_id": file_id,
+                "total_chars": total_len,
+                "segments": len(segments),
+                "in_table_chars": in_table_chars,
+            },
+        )
 
     # Build pattern (Docs-aware) and search the entire flat text
     pattern = _pattern_from_block_docs(original_text)
