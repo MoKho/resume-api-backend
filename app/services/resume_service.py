@@ -220,47 +220,54 @@ def run_tailoring_process(application_id: int, user_id: str):
             else:
                 updated_resume = replaced_resume
 
-        # Step 5: Generate the new summary
-        log.info("Generating new professional summary...")
-        new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
-        # Also generate a new skills section
-        log.info("Generating new skills section...")
-        old_skills = str(profile_data.get('base_skills_text'))
-        new_skills = llm_service.generate_skills_section(updated_resume, summarized_jd, old_skills)
-
-        # Step 6: Assemble the final resume with conditional logic
+        # Step 5: Conditionally generate the new summary and skills only if present
+        # Read the existing summary/skills from the profile (do NOT coerce to str — that can create 'None')
         old_summary = profile_data.get('base_summary_text')
+        old_skills = profile_data.get('base_skills_text')
 
+        new_summary = None
+        new_skills = None
+
+        # Generate and attempt to replace the professional summary only if one exists
         if old_summary:
-            log.info("Found existing summary. Replacing it.")
-            log.info("Old summary: %s", old_summary)
-            log.info("New summary: %s", new_summary)
-            # Use flexible replacement for summary as well; if it fails, prepend
-            replaced_resume, did_replace = _flexible_replace(updated_resume, old_summary, new_summary)
-            if did_replace:
-                final_resume = replaced_resume
-                log.info("Summary replaced using flexible match")
-            else:
-                log.warning("Summary replacement failed with flexible match; prepending new summary")
-                final_resume = f"{new_summary}\n\n{final_resume}"
-        else:
-            log.info("No existing summary found; ignoring summary replacement")
-            # No-op: keep final_resume as-is
+            log.info("Found existing summary — generating replacement...")
+            try:
+                new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
+                log.info("Generated new summary")
+            except Exception:
+                log.exception("Failed to generate new professional summary; skipping replacement")
 
-        # Replace skills section if present
-        #old_skills = profile_data.get('base_skills_text')
-        if old_skills:
-            log.info("Found existing skills. Replacing them.")
-            log.info("Old summary: %s", old_summary)
-            log.info("New summary: %s", new_summary)
-            replaced_resume, did_replace_sk = _flexible_replace(final_resume, old_skills, new_skills)
-            if did_replace_sk:
-                final_resume = replaced_resume
-                log.info("Skills replaced using flexible match")
-            else:
-                log.warning("Skills replacement failed with flexible match; leaving original skills")
+            if new_summary:
+                log.info("Attempting flexible summary replacement")
+                replaced_resume, did_replace = _flexible_replace(updated_resume, old_summary, new_summary)
+                if did_replace:
+                    final_resume = replaced_resume
+                    log.info("Summary replaced using flexible match")
+                else:
+                    log.warning("Summary replacement failed with flexible match; prepending new summary")
+                    final_resume = f"{new_summary}\n\n{final_resume}"
         else:
-            log.info("No existing skills found; ignoring skills replacement")
+            log.info("No existing summary found; skipping summary generation and replacement")
+
+        # Generate and attempt to replace the skills section only if one exists
+        if old_skills:
+            log.info("Found existing skills — generating replacement...")
+            try:
+                new_skills = llm_service.generate_skills_section(updated_resume, summarized_jd, old_skills)
+                log.info("Generated new skills section")
+            except Exception:
+                log.exception("Failed to generate new skills section; skipping replacement")
+
+            if new_skills:
+                log.info("Attempting flexible skills replacement")
+                replaced_resume, did_replace_sk = _flexible_replace(final_resume, old_skills, new_skills)
+                if did_replace_sk:
+                    final_resume = replaced_resume
+                    log.info("Skills replaced using flexible match")
+                else:
+                    log.warning("Skills replacement failed with flexible match; leaving original skills")
+        else:
+            log.info("No existing skills found; skipping skills generation and replacement")
         
         # Step 7: Build a structured map of the updated fields to support granular UI copy
         updated_fields = {
@@ -352,7 +359,7 @@ def run_tailoring_process(application_id: int, user_id: str):
 
                 # Replace or prepend summary in the Drive doc
                 if dup_id:
-                    if old_summary:
+                    if old_summary and new_summary:
                         try:
                             res = gdrive_utils.replace_text_block_flexible(dup_id, old_summary, new_summary)
                             if not res.get("updated"):
@@ -365,14 +372,14 @@ def run_tailoring_process(application_id: int, user_id: str):
                             except Exception:
                                 log.exception("Drive prepend failed for summary as well")
                     else:
-                        logging.info("No existing summary found; ignoring summary replacement")
+                        logging.info("No existing summary found or no generated summary; skipping Drive summary replacement")
                     #    try:
                     #        gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
                     #    except Exception:
                     #        log.exception("Drive prepend failed for summary")
 
                     # Replace skills section in the Drive doc if present
-                    if old_skills:
+                    if old_skills and new_skills:
                         try:
                             res = gdrive_utils.replace_text_block_flexible(dup_id, old_skills, new_skills)
                             if not res.get("updated"):
@@ -380,6 +387,8 @@ def run_tailoring_process(application_id: int, user_id: str):
                                 gdrive_utils.replace_text_in_doc(dup_id, old_skills, new_skills, replace_all=False)
                         except Exception:
                             log.exception("Drive replace failed for skills section")
+                    else:
+                        log.info("No existing skills found or no generated skills; skipping Drive skills replacement")
 
                 # Export to PDF on Drive
                 #try:

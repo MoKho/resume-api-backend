@@ -311,7 +311,6 @@ Hints:
   * The company name usually appears adjacent to the job title and may be separated by a bullet (•), comma, dash, or similar character.
   * Do not include dates in the achievements string.
   * Keep the structure of the achievements block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
-  * Use ASCII characters only.
   * If the resume does not contain any job history entries, return a JSON array with values being "Could not read the resume".
   * If there are paragraphs or sentences in a job history that is not a bullet point, include them as part of the achievements block as is.
   * If a job entry identifies department or team in addition to the company name, include that in the company name field.
@@ -394,17 +393,9 @@ accounts payable
 
 resume_professional_summary_extractor_agent_system_prompt = """
 You are an AI assistant that extracts summary section from a resume, if there is one.
-          "Reduced campaign setup time from 3 days to minutes by redesigning it!"
-        ]
-      }
-    ]
-    <Example_output>
-    """
-
-
-resume_professional_summary_extractor_agent_system_prompt = """
-You are an AI assistant that extracts summary section from a resume, if there is one.
-    Your task is to identify the summary section and extract the following details:
+Your task is to identify the summary section and extract the following details:
+* Keep the structure of the summary block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
+    
     * summary_text: The text of the summary.
 
     Return the extracted information as a string.
@@ -466,7 +457,7 @@ Instructions:
 * Detect the Skills section or equivalent (e.g., "Core Skills", "Technical Skills").
 * Return the exact text of the Skills section as a plain string, if found. If the resume does not contain a Skills section, return an empty string.
 * Avoid adding or removing any skills; return them exactly as they appear.
-* If the Skills section contains formatting (bullets, commas, line breaks), preserve that in your output.
+* Keep the structure of the skills block exactly as it appears in the resume. If it has bullets, line breaks, or specific formatting, preserve that in your output.
 
 <Example_input>
 Skills

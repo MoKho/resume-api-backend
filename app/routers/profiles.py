@@ -13,7 +13,14 @@ from app.models.schemas import (
     ResumeCheckResponse,
     ResumeTextResponse,
 )
-from app.models.schemas import ResumeSummaryResponse, ResumeSkillsResponse, ResumeFileUploadResponse, GoogleDriveFileRef
+from app.models.schemas import (
+    ResumeSummaryResponse,
+    ResumeSkillsResponse,
+    ResumeFileUploadResponse,
+    GoogleDriveFileRef,
+    ProcessResumeResponse,
+    JobHistoriesResponse,
+)
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest, ResumeCheckEnqueueResponse
@@ -63,15 +70,19 @@ async def get_my_profile(user=Depends(get_current_user)):
     result['has_base_resume'] = bool(result.get('base_resume_text'))
     return result
 
-@router.get("/job-histories", response_model=List[JobHistoryResponse])
+@router.get("/job-histories", response_model=JobHistoriesResponse)
 async def get_all_job_histories(user=Depends(get_current_user)):
-    """
-    Retrieves a list of all parsed job histories for the logged-in user.
+    """Return all parsed job histories plus stored summary and skills.
+
+    NOTE: Response changed from a raw list -> object with `jobs`, `summary`, `skills`.
     """
     user_id = str(user.id)
     log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
-    result = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
-    return result
+    jobs = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
+    profile = supabase.table("profiles").select("base_summary_text, base_skills_text").eq("id", user_id).single().execute().data
+    summary = profile.get("base_summary_text") if profile else None
+    skills = profile.get("base_skills_text") if profile else None
+    return {"jobs": jobs or [], "summary": summary, "skills": skills}
 
 
 @router.get("/resume-text", response_model=ResumeTextResponse)
@@ -134,7 +145,7 @@ async def get_my_skills(user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
-@router.post("/process-resume", response_model=List[JobHistoryResponse])
+@router.post("/process-resume", response_model=ProcessResumeResponse)
 async def process_resume(
     resume_data: ResumeUpload,
     user=Depends(get_current_user)
@@ -202,7 +213,11 @@ async def process_resume(
             supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
 
         log.info("Inserted parsed job histories", extra={"inserted_count": len(inserted_data) if inserted_data else 0})
-        return inserted_data
+        return {
+            "jobs": inserted_data or [],
+            "summary": professional_summary,
+            "skills": skills_text,
+        }
     except ValueError as e:
         log.error("ValueError during resume processing: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))

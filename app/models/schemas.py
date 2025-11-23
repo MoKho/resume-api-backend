@@ -123,6 +123,32 @@ class JobHistoryResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class ProcessResumeResponse(BaseModel):
+    """Response for the `/process-resume` endpoint.
+
+    Fields:
+    - jobs: list of parsed job history records inserted for the user
+    - summary: extracted professional summary text (optional)
+    - skills: extracted skills section text (optional)
+    """
+    jobs: List[JobHistoryResponse]
+    summary: Optional[str] = None
+    skills: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+class JobHistoriesResponse(BaseModel):
+    """Combined response for job histories plus stored summary and skills.
+
+    Returned by GET /profiles/job-histories.
+    """
+    jobs: List[JobHistoryResponse]
+    summary: Optional[str] = None
+    skills: Optional[str] = None
+
+    class Config:
+        orm_mode = True
         
 class ProfileResponse(BaseModel):
     id: str
