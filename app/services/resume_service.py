@@ -244,8 +244,8 @@ def run_tailoring_process(application_id: int, user_id: str):
                     final_resume = replaced_resume
                     log.info("Summary replaced using flexible match")
                 else:
-                    log.warning("Summary replacement failed with flexible match; prepending new summary")
-                    final_resume = f"{new_summary}\n\n{final_resume}"
+                    log.warning("Summary replacement failed with flexible match; leaving original summary")
+                    #final_resume = f"{new_summary}\n\n{final_resume}"
         else:
             log.info("No existing summary found; skipping summary generation and replacement")
 
