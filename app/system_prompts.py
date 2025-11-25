@@ -58,7 +58,8 @@ Compare the <Resume> and the list of <Qualifications>. Provide score for the res
 </TASK>
 
 <Instructions>
-- if the <Qualifications> list is empty or not provided, simply state "No qualifications provided" and stop. Do not proceed to other tasks.
+- Each qualification in the <Qualifications> has a weight provided in the "Weight" column of the input CSV. Retain the qualification title and that weight exactly as they are in your output.
+- Each qualification should be scored based on how well the resume matches that qualification.
 - For the score, use a scale from 0 to 10, where 0 means no match at all and 10 means perfect match.
 - Provide the score in a csv format with three columns: "Qualification", "Weight", "Score".
 - Only return the csv and nothing else. No title, no explanation, no surrounding text.
@@ -66,29 +67,17 @@ Compare the <Resume> and the list of <Qualifications>. Provide score for the res
 - Avoid using non-ASCII characters. Always use plain ASCII characters.
 </Instructions>
 <Shots>
+
+
 <Example1>
 <Example1_input>
-"<Resume>
-some text in the resume
-</Resume>
-<Qualifications>
-qualification,weight
-</Qualifications>"
-</Example1_input>
-<Example1_output>
-No qualifications provided
-</Example1_output>
-</Example1>
-
-<Example2>
-<Example2_input>
 <Resume>
 - Forklift operator with 6 years at ABC Distribution. Certified.
 - Moves goods for shipping/receiving on concrete floors and pallets.
 - Strong safety practices; some inventory reporting experience.
 </Resume>
 <Qualifications>
-Qualification,Weight,Score
+Qualification,Weight
 Over 5 years forklift operation experience,10
 Operating forklifts on concrete and palletized floors,9
 Handling high load capacities,9
@@ -98,10 +87,10 @@ Inventory analysis and shipping data skills,8
 Experience moving goods for shipping receiving,8
 Technical certification or equivalent,6
 </Qualifications>
-</Example2_input>
-<Example2_output>
+</Example1_input>
+<Example1_output>
 Qualification,Weight,Score
-Over 5 years forklift operation experience,10,10
+Over 5 years forklift operation experience,10,9
 Operating forklifts on concrete and palletized floors,9,8
 Handling high load capacities,9,7
 Understanding forklift safety procedures,10,10
@@ -252,7 +241,9 @@ Based on <CurrentResume> and if available based on <Background>, rewrite this se
 </TASK>
 <Instructions>
 * Base your writing only on the information provided in <CurrentResume> and if available <Background>.
+* If the job is about leadership or management, make sure to highlight leadership and management experiences from the <CurrentResume> and/or <Background>. If it is an individual contributor role, focus more on individual contributor achievements and experiences.
 * Avoid adding achievements or experiences that are not in the <CurrentResume> or <Background>.
+* Avoid using terms from the <JobDescription> that are specific to that certain company if they are not in the <CurrentResume> or <Background>, unless they are very common everywhere in other companies.
 * Use simple and clear language.
 * Keep the writing professional and correct.
 * Avoid sentences with more than 25 words.
