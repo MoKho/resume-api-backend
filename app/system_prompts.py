@@ -208,20 +208,20 @@ Draft a one-paragraph professional summary to use on the resume to improve the m
 </TASK>
 
 <Instructions>
-* The professional summary is a paragraph. Do not use bullets.
+* The professional summary is one paragraph. Do not use bullets.
+* If the job is about leadership or management, make sure to highlight leadership and management experiences from the <CurrentResume> and/or <Background>. If it is an individual contributor role, focus more on individual contributor achievements and experiences.
+* Avoid adding achievements or experiences that are not in the resume.
+* Avoid using terms from the job description that are specific to that certain company if they are not in the resume, unless they are very common everywhere in other companies.
 * Use simple and clear language.
 * Use language from the job description as much as possible.
 * Except for the words used in the job description or the resume, avoid using big or heavy words.
 * Keep the writing professional and correct.
 * Use third person point of view and objective sentences (e.g. use "delivered a platform..." instead of "He delivered a platform...").
-* If suitable and relevant, mention one or two achievements.
+* If suitable and relevant, mention at least one or two achievements, unless the resume does not have any achievements.
 * Write your response in plain text with no formatting.
 * Use 400 or less characters.
-* The current year is 2025.
 * Avoid using non-ASCII characters. Always use plain ASCII characters.
-* Don't prioritize “sophisticated clarity” at the expense of natural rhythm - keep sentences clear but let the cadence feel human, not textbook-perfect.
-* Steer clear of formulaic flow - resist the urge to force a rigid, step-by-step outline; let ideas unfold organically with occasional digressions or anecdotes.
-
+* The current year is {datetime.datetime.now().year} and the current month is {datetime.datetime.now().strftime('%B')}.
 </Instructions>
 """
 
