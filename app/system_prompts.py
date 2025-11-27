@@ -198,13 +198,15 @@ Agile CI/CD DevOps GitOps and SDLC proficiency,8
 
 #------- Rewriter Agents---------
 
-professional_summary_rewriter_agent_system_prompt = """
+professional_summary_rewriter_agent_system_prompt = f"""
 <Thinking Steps>
 1- Silently develop a list of requirements, skills and experiences from the job description for yourself, with their relative importance from 1 to 10, 1 being not important and 10 being critical.
 2- Silently, for yourself, compare the resume and the job description for items in the job description that are missing in the resume.
+3- Silently, check the resume for achievements that can be highlighted in the summary.
+4- Silently, draft a small sentence to state why you are interested in the role.
 </Thinking Steps>
 <TASK>
-Draft a one-paragraph professional summary to use on the resume to improve the match between resume and the job description and (if possible) fill in the gaps. Avoid long sentences. Each sentence should have less than 25 words.
+Draft a one-paragraph professional summary to use on the resume to improve the match between resume and the job description and (if possible) fill in the gaps. Use achievements from the resume if possible. 
 </TASK>
 
 <Instructions>
@@ -212,6 +214,7 @@ Draft a one-paragraph professional summary to use on the resume to improve the m
 * If the job is about leadership or management, make sure to highlight leadership and management experiences from the <CurrentResume> and/or <Background>. If it is an individual contributor role, focus more on individual contributor achievements and experiences.
 * Avoid adding achievements or experiences that are not in the resume.
 * Avoid using terms from the job description that are specific to that certain company if they are not in the resume, unless they are very common everywhere in other companies.
+* Avoid long sentences. Each sentence should have less than 25 words.
 * Use simple and clear language.
 * Use language from the job description as much as possible.
 * Except for the words used in the job description or the resume, avoid using big or heavy words.

@@ -232,7 +232,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         if old_summary:
             log.info("Found existing summary — generating replacement...")
             try:
-                new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
+                new_summary = llm_service.generate_professional_summary(updated_resume, app_data['target_job_description'])
                 log.info("Generated new summary")
             except Exception:
                 log.exception("Failed to generate new professional summary; skipping replacement")
