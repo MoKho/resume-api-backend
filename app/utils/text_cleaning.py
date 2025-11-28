@@ -79,6 +79,7 @@ def normalize_to_ascii(text: str) -> Tuple[bool, str, Dict[str, Dict[str, Any]]]
         # Line/paragraph separators -> normalize to \n or remove soft hyphen
         "\u2028": "\n",
         "\u2029": "\n",
+        "\u000a": "\n",
         "\u00AD": "",  # soft hyphen: remove
 
         # Bullets and dots
