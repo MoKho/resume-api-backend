@@ -178,9 +178,20 @@ def load_credentials(user_id: str):
         creds = Credentials.from_authorized_user_info(info, scopes=DRIVE_SCOPES)
         if not creds.valid:
             if creds.refresh_token:
-                creds.refresh(Request())
-                # Persist refreshed tokens
-                save_credentials(user_id, json.loads(creds.to_json()))
+                try:
+                    creds.refresh(Request())
+                    # Persist refreshed tokens
+                    save_credentials(user_id, json.loads(creds.to_json()))
+                except Exception as e:
+                    msg = str(e)
+                    # If the refresh fails due to invalid_grant, clear stored creds and force re-auth
+                    if "invalid_grant" in msg or "Token has been expired or revoked" in msg:
+                        try:
+                            get_supabase().table(TOK_TABLE).delete().eq("user_id", str(user_id)).execute()
+                        except Exception:
+                            pass
+                        raise HTTPException(status_code=401, detail="Google Drive authorization expired or revoked; please re-authorize.")
+                    raise HTTPException(status_code=500, detail=f"Failed to refresh Google tokens: {e}")
             else:
                 raise HTTPException(status_code=401, detail="Missing refresh token; re-authorize required")
         return creds

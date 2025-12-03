@@ -286,11 +286,21 @@ async def open_file(payload: GoogleDriveOpenFileRequest, user=Depends(get_curren
 
 @router.get("/auth-status")
 async def auth_status(user=Depends(get_current_user)):
-    """Check if the user has authenticated their Google account."""
+    """Check if the user has authenticated their Google account.
+
+    Attempts to load and, if necessary, refresh credentials. If refresh fails (e.g., invalid_grant), returns False
+    so the frontend can prompt for re-authorization.
+    """
     try:
         creds = load_credentials(str(user.id))
+        # If load_credentials returned without raising, creds are valid or have been refreshed successfully
         if creds and creds.valid:
             return {"authenticated": True}
+    except HTTPException as e:
+        # Treat 401 from load_credentials as not authenticated (revoked/expired)
+        if e.status_code == 401:
+            return {"authenticated": False}
     except Exception:
-        pass
+        # Any other error -> not authenticated
+        return {"authenticated": False}
     return {"authenticated": False}
