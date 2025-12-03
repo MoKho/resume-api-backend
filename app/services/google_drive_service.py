@@ -62,9 +62,8 @@ SERVER_SERVICE_ACCOUNT_PATH = str(Path(__file__).resolve().parent.parent / SERVE
 # Shared Drive folder where server should store master resumes. Can be overridden via env.
 SHARED_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_SHARED_DRIVE_FOLDER_ID", "0ABNYGt-LYK-JUk9PVA")
 DRIVE_SCOPES = [
-    # drive.file only gives access to files created or explicitly opened by the app.
-    # Add readonly so the app can read user files the user has access to.
-    "https://www.googleapis.com/auth/drive.file",
+    # Minimal scope to read files the user selects via Picker or
+    # any files the user already has access to. No write/create.
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
