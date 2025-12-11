@@ -7,9 +7,11 @@ import datetime
 from openai import OpenAI, APIError
 from dotenv import load_dotenv
 from app import system_prompts
-from typing import List
+from typing import List, Type, Tuple, Optional
 from app.logging_config import get_logger, bind_logger, configure_logging
 from app.utils.text_cleaning import normalize_to_ascii
+from app.models.schemas import ResumeHistoryExtraction, ResumeHistoryItem
+from pydantic import BaseModel
 
 configure_logging()
 
@@ -62,6 +64,13 @@ model_mapping = {
         {"provider": "cerebras", "model": "llama3.1-8b"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
     ],
+    "resume-skills-extractor": [
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
+        {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        {"provider": "cerebras", "model": "llama3.1-8b"},
+        {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ],
     "resume-summary-extractor": [
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
 
@@ -83,6 +92,12 @@ model_mapping = {
         {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "cerebras", "model": "llama-4-scout-17b-16e-instruct"},
         {"provider": "gemini", "model": "models/gemini-flash-latest"}
+    ]
+    ,"skills-rewriter-agent": [
+        {"provider": "groq", "model": "openai/gpt-oss-120b"},
+        {"provider": "cerebras", "model": "gpt-oss-120b"},
+        {"provider": "sambanova", "model": "gpt-oss-120b"},
+        {"provider": "gemini", "model": "models/gemini-2.5-pro"}
     ]
 }
 
@@ -189,6 +204,68 @@ def call_llm_provider(provider_name, workload_difficulty, system_prompt, user_pr
 
 # --- Real LLM Functions  ---
 
+def call_llm_with_structured_output(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema_model: Type[BaseModel],
+) -> Tuple[Optional[BaseModel], bool]:
+    """Call the LLM and request a structured (Pydantic-validated) response.
+
+    Uses the provider 'groq' and the model 'openai/gpt-oss-20b'. Returns a tuple
+    of (parsed_result, refused). When refused is True, parsed_result will be None.
+
+    Notes:
+    - We use native Pydantic support to keep schema and code in sync.
+    - Objects forbid additional properties via the Pydantic model config.
+    - Some providers may not support structured parsing endpoints; we log and re-raise.
+    """
+    slog = bind_logger(logger, {"agent_name": "call_llm_with_structured_output"})
+
+    base_url = provider_urls["groq"]
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        slog.error("GROQ_API_KEY not found in environment variables")
+        raise ValueError("GROQ_API_KEY not found in environment variables")
+
+    client = OpenAI(base_url=base_url, api_key=api_key)
+
+    # Prefer chat.completions.parse for provider compatibility
+    try:
+        completion = client.chat.completions.parse(
+            model="openai/gpt-oss-20b",  # Align with existing mapping
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=schema_model,
+            temperature=0.0,
+        )
+        msg = completion.choices[0].message
+        # Continue when refusal is not present; only treat as refusal when the
+        # attribute exists and is truthy.
+        refused = hasattr(msg, "refusal") and bool(getattr(msg, "refusal"))
+        if refused:
+            refusal_text = getattr(msg, "refusal", "")
+            slog.warning(
+                "Structured output refused by model",
+                extra={"refusal": str(refusal_text)[:200]},
+            )
+            return None, True
+        parsed = getattr(msg, "parsed", None)
+        if parsed is None:
+            slog.error("Structured parse returned no parsed payload")
+            raise ValueError("No parsed payload returned from structured output call")
+        slog.info("Structured output parse successful")
+        return parsed, False
+    except APIError:
+        slog.exception("APIError during structured output call", exc_info=True)
+        raise
+    except Exception:
+        # If provider doesn't support parse endpoint, surface the error
+        slog.exception("Unexpected error during structured output call", exc_info=True)
+        raise
+
 def analyze_job_description(job_description: str) -> str:
     log = bind_logger(logger, {"agent_name": "analyze_job_description"})
 
@@ -206,7 +283,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
 
     log.info("LLM Service: Rewriting job history")
     # Add the background to the system prompt as per the notebook's logic
-    custom_settings = {"reasoning_effort": "high"}
+    custom_settings = {"reasoning_effort": "medium"}
     prompt_parts = [
         "<JobDescription>",
         summarized_job_description,
@@ -229,6 +306,7 @@ def rewrite_job_history(job_history_background: str, summarized_job_description:
         workload_difficulty='resume-rewrite-agent',
         system_prompt=system_prompts.resume_rewriter_agent_system_prompt,
         user_prompt=prompt,
+        clean_to_ascii=True,
         custom_settings = custom_settings
     )
 
@@ -236,13 +314,29 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
     log = bind_logger(logger, {"agent_name": "generate_professional_summary"})
 
     log.info("LLM Service: Generating new professional summary")
-    custom_settings = {"reasoning_effort": "high"}
+    custom_settings = {"reasoning_effort": "medium"}
     user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
         provider_name='groq',
         workload_difficulty='professional_summary_rewrite_agent',
         system_prompt=system_prompts.professional_summary_rewriter_agent_system_prompt,
         user_prompt=user_prompt,
+        clean_to_ascii=True,
+        custom_settings=custom_settings
+    )
+
+def generate_skills_section(updated_resume: str, summarized_job_description: str, old_skills: str) -> str:
+    log = bind_logger(logger, {"agent_name": "generate_skills_section"})
+
+    log.info("LLM Service: Generating tailored skills section")
+    custom_settings = {"reasoning_effort": "medium", "temperature": 0.2}
+    user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>\n\n<old_skills>\n{old_skills}\n</old_skills>"
+    return call_llm_provider(
+        provider_name='groq',
+        workload_difficulty='skills-rewriter-agent',
+        system_prompt=system_prompts.skills_rewriter_agent_system_prompt,
+        user_prompt=user_prompt,
+        clean_to_ascii=True,
         custom_settings=custom_settings
     )
 
@@ -337,39 +431,51 @@ def check_resume(resume: str, job_post: str) -> str:
 def parse_resume_to_json(resume_text: str) -> List[dict]:
     log = bind_logger(logger, {"agent_name": "parse_resume_to_json"})
 
-    log.info("LLM Service: Parsing resume text to JSON...")
-    try:
-        response_str = call_llm_provider(
-            provider_name='groq',
-            workload_difficulty='resume-history-jobs-extractor',
-            system_prompt=system_prompts.resume_history_company_extractor_agent_system_prompt,
-            user_prompt=resume_text,
-            clean_to_ascii=False
-        )
-        # The LLM returns a JSON string representing a list[object]. Each object contains
-        # history_job_title, history_company_name, and history_job_achievements (string).
-        # Be tolerant of accidental surrounding text or code fences.
-        text = response_str.strip()
-        # Strip common markdown fences
-        if text.startswith("```"):
-            # remove first fence line and trailing fence
-            text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
-        # Attempt a direct parse; if it fails, try to extract the first JSON array
+    log.info("LLM Service: Parsing resume text to structured JSON via Pydantic...")
+    system_prompt = system_prompts.resume_history_company_extractor_agent_system_prompt
+
+    last_refusal: Optional[str] = None
+    for attempt in range(1, 4):
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            start = text.find('[')
-            end = text.rfind(']')
-            if start != -1 and end != -1 and end > start:
-                candidate = text[start:end+1]
-                return json.loads(candidate)
+            parsed, refused = call_llm_with_structured_output(
+                system_prompt=system_prompt,
+                user_prompt=f'<Resume>{resume_text}</Resume>',
+                schema_model=ResumeHistoryExtraction,
+            )
+            if refused:
+                last_refusal = "Model refusal on attempt %d" % attempt
+                log.warning("Model refusal encountered", extra={"attempt": attempt})
+                continue
+
+            # Convert the Pydantic model to the original expected return:
+            # List[dict] with keys: history_job_title, history_company_name, history_job_achievements
+            assert isinstance(parsed, ResumeHistoryExtraction)
+            result: List[dict] = []
+            for item in parsed.jobs:
+                # item is ResumeHistoryItem (validated)
+                result.append(
+                    {
+                        "history_job_title": item.history_job_title,
+                        "history_company_name": item.history_company_name,
+                        "history_job_achievements": item.history_job_achievements,
+                    }
+                )
+            log.info("Successfully parsed resume history to JSON", extra={"count": len(result)})
+            return result
+
+        except APIError:
+            log.exception("API error during structured parsing", exc_info=True, extra={"attempt": attempt})
+            # For API errors, no automatic retry unless it refused; re-raise
             raise
-    except json.JSONDecodeError as e:
-        log.error(f"Failed to decode LLM response into JSON: {e}")
-        raise ValueError("The AI failed to return valid JSON. Please try again.")
-    except Exception as e:
-        log.error(f"An error occurred during resume parsing: {e}")
-        raise
+        except Exception:
+            log.exception("Unexpected error during structured parsing", exc_info=True, extra={"attempt": attempt})
+            # Break early if it's not a refusal; the error is likely not transient
+            raise
+
+    # If we reach here, we had three refusals
+    refusal_msg = last_refusal or "Model refused to parse resume"
+    log.error("Structured parsing failed after 3 refusals", extra={"reason": refusal_msg})
+    raise ValueError("The AI refused to process the resume three times. Please try again or adjust the input.")
 
 def extract_professional_summary(resume_text: str) -> str:
     log = bind_logger(logger, {"agent_name": "extract_professional_summary"})
@@ -388,6 +494,25 @@ def extract_professional_summary(resume_text: str) -> str:
 
     except Exception as e:
         log.error(f"An error occurred during professional summary extraction: {e}")
+        raise
+
+def extract_resume_skills(resume_text: str) -> str:
+    log = bind_logger(logger, {"agent_name": "extract_resume_skills"})
+
+    log.info("LLM Service: Extracting skills from resume...")
+    try:
+        response_str = call_llm_provider(
+            provider_name='groq',
+            workload_difficulty='resume-skills-extractor',
+            system_prompt=system_prompts.resume_skills_extractor_agent_system_prompt,
+            user_prompt=resume_text,
+            clean_to_ascii=False
+        )
+        log.info("Successfully extracted skills section")
+        return response_str
+
+    except Exception as e:
+        log.error(f"An error occurred during skills extraction: {e}")
         raise
 
 def extract_job_qualifications(summarized_job_description: str) -> str:

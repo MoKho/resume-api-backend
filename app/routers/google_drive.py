@@ -223,21 +223,43 @@ async def open_file(payload: GoogleDriveOpenFileRequest, user=Depends(get_curren
         log.info("open_file: profile updated with gdrive_master_resume_id", extra={"dest_file_id": dest_file_id})
 
         # Read content to return to the frontend
-        if src_mime == GOOGLE_DOC or dest_mime == GOOGLE_DOC:
-            # Destination is Google Doc (or started as), export directly
+        content_md = ""
+        if dest_mime == GOOGLE_DOC:
+            # Destination is Google Doc, export directly for both text and markdown
             content = export_google_doc_text(server_drive, dest_file_id)
+            try:
+                log.info("open_file: exporting destination as markdown")
+                md_bytes = export_google_doc_bytes(server_drive, dest_file_id, "text/markdown")
+                content_md = md_bytes.decode("utf-8")
+                #content_md = str(md_bytes)
+                log.info("open_file: markdown export complete")
+            except Exception as e:
+                log.warning("open_file: failed to export as markdown", extra={"error": str(e)})
         elif src_mime in (DOC, DOCX):
-            # For DOC/DOCX stored as original in server Drive, create a temporary Google Doc for text extraction
+            # For DOC/DOCX stored as original in server Drive, create a temporary Google Doc for text and markdown extraction
             log.info("open_file: creating temporary Google Doc for text extraction from DOC/DOCX")
             raw = download_file_bytes(user_drive, file_id)
             temp = upload_bytes_as_google_doc(server_drive, raw, src_mime, f"{dest_name}-tmp-conversion")
             try:
                 content = export_google_doc_text(server_drive, temp["id"])
+                try:
+                    log.info("open_file: exporting temp doc as markdown")
+                    md_bytes = export_google_doc_bytes(server_drive, temp["id"], "text/markdown")
+                    content_md = md_bytes.decode("utf-8")
+                    log.info("open_file: markdown export complete for temp doc")
+                except Exception as e:
+                    log.warning("open_file: failed to export temp doc as markdown", extra={"error": str(e)})
             finally:
                 delete_file(server_drive, temp["id"])  # best-effort cleanup
         else:
             # Fallback: try exporting whatever we created
             content = export_google_doc_text(server_drive, dest_file_id)
+            try:
+                log.info("open_file: exporting destination as markdown (fallback)")
+                md_bytes = export_google_doc_bytes(server_drive, dest_file_id, "text/markdown")
+                content_md = md_bytes.decode("utf-8")
+            except Exception as e:
+                log.warning("open_file: failed to export as markdown (fallback)", extra={"error": str(e)})
 
         log.info("open_file: destination content exported")
 
@@ -245,6 +267,7 @@ async def open_file(payload: GoogleDriveOpenFileRequest, user=Depends(get_curren
             source=GoogleDriveFileRef(fileId=file_id, mimeType=src_mime, name=src_name),
             destination=GoogleDriveFileRef(fileId=dest_file_id, mimeType=dest_mime, name=dest_file.get("name", dest_name)),
             content=content,
+            content_md=content_md,
         )
 
         log.info("open_file: done")
@@ -263,11 +286,21 @@ async def open_file(payload: GoogleDriveOpenFileRequest, user=Depends(get_curren
 
 @router.get("/auth-status")
 async def auth_status(user=Depends(get_current_user)):
-    """Check if the user has authenticated their Google account."""
+    """Check if the user has authenticated their Google account.
+
+    Attempts to load and, if necessary, refresh credentials. If refresh fails (e.g., invalid_grant), returns False
+    so the frontend can prompt for re-authorization.
+    """
     try:
         creds = load_credentials(str(user.id))
+        # If load_credentials returned without raising, creds are valid or have been refreshed successfully
         if creds and creds.valid:
             return {"authenticated": True}
+    except HTTPException as e:
+        # Treat 401 from load_credentials as not authenticated (revoked/expired)
+        if e.status_code == 401:
+            return {"authenticated": False}
     except Exception:
-        pass
+        # Any other error -> not authenticated
+        return {"authenticated": False}
     return {"authenticated": False}

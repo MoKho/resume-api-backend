@@ -2,11 +2,25 @@
 
 
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import List
 from app.security import get_current_user
-from app.models.schemas import ResumeUpload, JobHistoryUpdate, JobHistoryResponse, ProfileResponse, ResumeCheckResponse, ResumeTextResponse
-from app.models.schemas import ResumeSummaryResponse
+from app.models.schemas import (
+    ResumeUpload,
+    JobHistoryUpdate,
+    JobHistoryResponse,
+    ProfileResponse,
+    ResumeCheckResponse,
+    ResumeTextResponse,
+)
+from app.models.schemas import (
+    ResumeSummaryResponse,
+    ResumeSkillsResponse,
+    ResumeFileUploadResponse,
+    GoogleDriveFileRef,
+    ProcessResumeResponse,
+    JobHistoriesResponse,
+)
 from app.services import llm_service
 from app.services.resume_service import run_resume_check_process
 from app.models.schemas import ResumeCheckRequest, ResumeCheckEnqueueResponse
@@ -15,6 +29,13 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from app.logging_config import get_logger, bind_logger, configure_logging
+from app.services.google_drive_service import (
+    build_server_drive_service,
+    upload_bytes_as_google_doc,
+    upsert_profile_master_resume_id,
+    export_google_doc_text,
+    export_google_doc_bytes,
+)
 
 configure_logging()
 
@@ -49,15 +70,19 @@ async def get_my_profile(user=Depends(get_current_user)):
     result['has_base_resume'] = bool(result.get('base_resume_text'))
     return result
 
-@router.get("/job-histories", response_model=List[JobHistoryResponse])
+@router.get("/job-histories", response_model=JobHistoriesResponse)
 async def get_all_job_histories(user=Depends(get_current_user)):
-    """
-    Retrieves a list of all parsed job histories for the logged-in user.
+    """Return all parsed job histories plus stored summary and skills.
+
+    NOTE: Response changed from a raw list -> object with `jobs`, `summary`, `skills`.
     """
     user_id = str(user.id)
     log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
-    result = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
-    return result
+    jobs = supabase.table("job_histories").select("*").eq("user_id", user_id).order("id").execute().data
+    profile = supabase.table("profiles").select("base_summary_text, base_skills_text").eq("id", user_id).single().execute().data
+    summary = profile.get("base_summary_text") if profile else None
+    skills = profile.get("base_skills_text") if profile else None
+    return {"jobs": jobs or [], "summary": summary, "skills": skills}
 
 
 @router.get("/resume-text", response_model=ResumeTextResponse)
@@ -100,7 +125,27 @@ async def get_my_summary(user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
-@router.post("/process-resume", response_model=List[JobHistoryResponse])
+@router.get("/skills", response_model=ResumeSkillsResponse)
+async def get_my_skills(user=Depends(get_current_user)):
+    """
+    Return the current user's stored skills section (base_skills_text).
+    """
+    user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "profiles_router", "user_id": user_id})
+    try:
+        profile = supabase.table("profiles").select("base_skills_text").eq("id", user_id).single().execute().data
+        if not profile:
+            log.warning("Profile not found when requesting skills")
+            raise HTTPException(status_code=404, detail="Profile not found")
+        log.info("Returning skills section")
+        return {"skills": profile.get("base_skills_text")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+
+@router.post("/process-resume", response_model=ProcessResumeResponse)
 async def process_resume(
     resume_data: ResumeUpload,
     user=Depends(get_current_user)
@@ -125,6 +170,15 @@ async def process_resume(
             log.error("Error extracting professional summary: %s", str(e))
             raise HTTPException(status_code=500, detail="Error extracting professional summary")
 
+        # Extract skills section
+        try:
+            skills_text = llm_service.extract_resume_skills(resume_data.resume_text)
+            log.info("Extracted skills section")
+            log.info(skills_text)
+        except Exception as e:
+            log.error("Error extracting skills: %s", str(e))
+            raise HTTPException(status_code=500, detail="Error extracting skills section")
+
         try:
             parsed_jobs = llm_service.parse_resume_to_json(resume_data.resume_text)
         except Exception as e:
@@ -146,14 +200,24 @@ async def process_resume(
         # Bulk insert the new, correctly formatted job histories
         inserted_data = supabase.table("job_histories").insert(jobs_to_insert).execute().data
 
-        # Update the professional summary in the user's profile
-        supabase.table("profiles").update({"base_summary_text": professional_summary}).eq("id", user_id).execute()
+        # Merge profile updates into a single payload and perform one update call
+        profile_update = {}
+        if professional_summary is not None:
+            profile_update["base_summary_text"] = professional_summary
+        if skills_text is not None:
+            profile_update["base_skills_text"] = skills_text
+        if resume_data.resume_text is not None:
+            profile_update["base_resume_text"] = resume_data.resume_text
 
-        # Also, update the base_resume_text in the user's profile
-        supabase.table("profiles").update({"base_resume_text": resume_data.resume_text}).eq("id", user_id).execute()
+        if profile_update:
+            supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
 
         log.info("Inserted parsed job histories", extra={"inserted_count": len(inserted_data) if inserted_data else 0})
-        return inserted_data
+        return {
+            "jobs": inserted_data or [],
+            "summary": professional_summary,
+            "skills": skills_text,
+        }
     except ValueError as e:
         log.error("ValueError during resume processing: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
@@ -194,6 +258,81 @@ async def update_job_histories(
                 updated_records.append(result[0])
             
     return updated_records
+
+
+@router.post("/upload-resume", response_model=ResumeFileUploadResponse)
+async def upload_resume_file(file: UploadFile = File(...), user=Depends(get_current_user)):
+    """Upload a resume file and follow the same flow as open-file:
+
+    - Validate extension (pdf, docx, doc, txt, md)
+    - Upload bytes to the server's Google Drive converting to a Google Doc
+    - Update `profiles.gdrive_master_resume_id`
+    - Export and return plain text + markdown
+    """
+    user_id = str(user.id)
+    log = bind_logger(logger, {"agent_name": "upload-resume", "user_id": user_id})
+
+    # Validate extension and determine source mime
+    filename = file.filename or "uploaded"
+    name_lower = filename.lower()
+    ext = name_lower.rsplit(".", 1)[-1] if "." in name_lower else ""
+    allowed = {"pdf", "docx", "doc", "txt", "md"}
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: pdf, docx, doc, txt, md")
+
+    ext_to_mime = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+        "txt": "text/plain",
+        "md": "text/markdown",
+    }
+    source_mime = ext_to_mime.get(ext, "application/octet-stream")
+
+    try:
+        raw_bytes = await file.read()
+        if not raw_bytes:
+            raise HTTPException(status_code=400, detail="Empty file upload")
+
+        server_drive = build_server_drive_service()
+        dest_name = f"{user_id}-master-resume"
+
+        # Always convert to a Google Doc for the master resume copy
+        log.info("upload-resume: uploading bytes as Google Doc", extra={"dest_name": dest_name, "source_mime": source_mime})
+        dest_file = upload_bytes_as_google_doc(server_drive, raw_bytes, source_mime, dest_name)
+        dest_file_id = dest_file.get("id")
+        if not dest_file_id:
+            raise HTTPException(status_code=500, detail="Failed to create Google Doc for uploaded file")
+
+        # Update profile with master resume file id
+        upsert_profile_master_resume_id(user_id, dest_file_id)
+        log.info("upload-resume: profile updated with gdrive_master_resume_id", extra={"dest_file_id": dest_file_id})
+
+        # Export text and markdown
+        content = export_google_doc_text(server_drive, dest_file_id)
+        content_md = ""
+        try:
+            md_bytes = export_google_doc_bytes(server_drive, dest_file_id, "text/markdown")
+            content_md = md_bytes.decode("utf-8", errors="ignore")
+        except Exception as e:
+            log.warning("upload-resume: markdown export failed", extra={"error": str(e)})
+
+        response = ResumeFileUploadResponse(
+            destination=GoogleDriveFileRef(
+                fileId=dest_file_id,
+                mimeType=dest_file.get("mimeType"),
+                name=dest_file.get("name"),
+            ),
+            content=content,
+            content_md=content_md,
+        )
+        log.info("upload-resume: done", extra={"dest_file_id": dest_file_id})
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("upload-resume: unexpected error", extra={"error": str(e)})
+        raise HTTPException(status_code=500, detail=f"Failed to upload and process file: {e}")
 
 
 

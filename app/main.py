@@ -12,7 +12,8 @@ configure_logging()
 # Configure structured JSON logging early. Attempt to write to a rotating file
 # under /var/log/resume_api and fall back to console-only logging if that
 # directory cannot be created or is not writable by this process.
-LOG_DIR = "/var/log/resume_api"
+#LOG_DIR = "/var/log/resume_api"
+LOG_DIR = "./logs"
 LOG_FILE = os.path.join(LOG_DIR, "resume_api.log")
 
 def _ensure_log_dir(path: str) -> bool:
@@ -83,20 +84,17 @@ app = FastAPI(
 # This list defines which origins are allowed to communicate with your backend.
 origins = [
     "https://resume.p-q.app/",
-    # The URL of API itself (good for testing)
     "https://api.p-q.app",
-    #frontend URL
-    "https://resume.p-q.app/",
-    "https://ai-resume-tailor-242175857987.us-west1.run.app"
-    "http://localhost",       # For local development
-    "http://localhost:3000",  # Default for Next.js dev server
+    "https://resume.p-q.app/",  # duplicate is harmless, okay to keep or remove
+    "https://ai-resume-tailor-242175857987.us-west1.run.app",  # <-- add comma here
+    "http://localhost",
+    "http://localhost:3000",
     "http://localhost:8000",
-    "http://localhost:5173", # Vite dev server
+    "http://localhost:5173",
     "http://localhost:5174",
-    "https://aistudio.google.com/apps/drive/1OMMs_Qxb1qI24GqapxALM1nrKwNTgywj", # Google AI Studio
-    "https://2ln1bx7hzfopwqw021gl6ih56sbcopkebkobr14kqimqvyawx7-h813239537.scf.usercontent.goog", # Your AI Studio URL
-    "*" # A wildcard to allow any origin for now
-    # Add your future frontend production URL here, e.g., "https://www.your-frontend-app.com"
+    "https://aistudio.google.com/apps/drive/1OMMs_Qxb1qI24GqapxALM1nrKwNTgywj",
+    "https://2ln1bx7hzfopwqw021gl6ih56sbcopkebkobr14kqimqvyawx7-h813239537.scf.usercontent.goog",
+    "*"  # Consider removing this when allow_credentials=True; see note below
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -104,6 +102,7 @@ app.add_middleware(
     allow_credentials=True, # Allows cookies/authorization headers
     allow_methods=["*"],    # Allows all methods (GET, POST, etc.)
     allow_headers=["*"],    # Allows all headers
+    expose_headers=["Content-Disposition"],  # <-- expose filename header to the browser
 )
 
 

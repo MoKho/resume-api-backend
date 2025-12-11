@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import re
+import hashlib
 from typing import Optional
 import datetime
 from zoneinfo import ZoneInfo
@@ -34,6 +35,8 @@ supabase: Client = create_client(supabase_url, supabase_service_key)
 def run_tailoring_process(application_id: int, user_id: str):
     log = bind_logger(logger, {"agent_name": "tailoring_worker", "user_id": user_id, "application_id": application_id})
     log.info("Starting tailoring process")
+
+    tailor_debug_verbose = os.environ.get("TAILOR_DEBUG_VERBOSE", "false").lower() in ("1", "true", "yes")
     
     # --- Flexible replace helpers ---
     def _whitespace_pattern() -> str:
@@ -76,7 +79,7 @@ def run_tailoring_process(application_id: int, user_id: str):
         # Step 1: Fetch all necessary data from Supabase
         log.info("Fetching data from Supabase...")
         app_data = supabase.table("applications").select("*").eq("id", application_id).single().execute().data
-        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text, gdrive_master_resume_id, first_name, last_name").eq("id", user_id).single().execute().data
+        profile_data = supabase.table("profiles").select("base_resume_text, base_summary_text, base_skills_text, gdrive_master_resume_id, first_name, last_name").eq("id", user_id).single().execute().data
         job_histories_to_rewrite = supabase.table("job_histories").select("*").eq("user_id", user_id).eq("is_default_rewrite", True).execute().data
         
         # Step 2: Analyze the job description
@@ -104,6 +107,8 @@ def run_tailoring_process(application_id: int, user_id: str):
 
         # Step 4: Assemble the intermediate resume with real find-and-replace
         updated_resume = profile_data['base_resume_text']
+        # Start final resume from updated_resume to ensure defined even if no replacements happen
+        final_resume = updated_resume
         log.info("Replacing job history sections in the resume...")
         for history in job_histories_to_rewrite:
             history_id = history['id']
@@ -123,6 +128,25 @@ def run_tailoring_process(application_id: int, user_id: str):
             
             # Get the new, AI-generated text.
             new_rewritten_text = rewritten_histories[history_id]
+
+            if tailor_debug_verbose:
+                # Log diagnostics about original vs rewritten blocks for this history
+                orig = original_achievements_block or ""
+                new = new_rewritten_text or ""
+                orig_hash = hashlib.sha256(orig.encode("utf-8", errors="ignore")).hexdigest()
+                new_hash = hashlib.sha256(new.encode("utf-8", errors="ignore")).hexdigest()
+                log.debug(
+                    "History block diagnostics",
+                    extra={
+                        "history_id": history_id,
+                        "orig_len": len(orig),
+                        "new_len": len(new),
+                        "orig_hash": orig_hash,
+                        "new_hash": new_hash,
+                        "orig_preview": orig[:200],
+                        "new_preview": new[:200],
+                    },
+                )
             #log.info("Original achievements block: %s", original_achievements_block)
             #log.info("New rewritten text: %s", new_rewritten_text)
             #log.info("Replacing original achievements block with rewritten text", extra={"New history": new_rewritten_text})
@@ -131,9 +155,8 @@ def run_tailoring_process(application_id: int, user_id: str):
             # Before performing replacement:
             if original_achievements_block not in updated_resume:
                 log.warning(
-                    "Achievements block not found in resume (exact match). "
-                    "len_block=%d len_resume=%d",
-                    len(original_achievements_block), len(updated_resume)
+                    "Achievements block not found in resume (exact match). len_block=%d len_resume=%d",
+                    len(original_achievements_block), len(updated_resume),
                 )
                 # Optional: perform normalized check to confirm newline/whitespace mismatch
                 def _norm(s: str) -> str:
@@ -141,41 +164,115 @@ def run_tailoring_process(application_id: int, user_id: str):
                         s.replace("\r\n", "\n").replace("\r", "\n")
                         .replace("\u00A0", " ").replace("\u200B", "").replace("\ufeff", "")
                     )
-                if _norm(original_achievements_block) in _norm(updated_resume):
-                    log.info("Normalized match found (newline/whitespace/punctuation normalization fixes it)")
+
+                norm_orig = _norm(original_achievements_block)
+                norm_resume = _norm(updated_resume)
+                found_norm = norm_orig in norm_resume
+                log.info(
+                    "Normalized presence check",
+                    extra={
+                        "history_id": history_id,
+                        "found_normalized": found_norm,
+                        "norm_orig_len": len(norm_orig),
+                        "norm_resume_len": len(norm_resume),
+                    },
+                )
+
+                if tailor_debug_verbose and found_norm:
+                    # Log where the normalized block appears and a short context window around it
+                    idx = norm_resume.find(norm_orig)
+                    ctx_start = max(0, idx - 80)
+                    ctx_end = min(len(norm_resume), idx + len(norm_orig) + 80)
+                    log.debug(
+                        "Normalized match context",
+                        extra={
+                            "history_id": history_id,
+                            "index": idx,
+                            "context": norm_resume[ctx_start:ctx_end],
+                        },
+                    )
             # Try flexible replacement that tolerates whitespace differences
             replaced_resume, did_replace = _flexible_replace(updated_resume, original_achievements_block, new_rewritten_text)
             if not did_replace:
                 log.warning("Flexible replacement failed for job history block; leaving original text", extra={"history_id": history_id})
+                if tailor_debug_verbose:
+                    # Try to find best-effort alignment for debugging: first differing index between
+                    # updated_resume and a naive replacement attempt in a normalized space.
+                    def _first_diff(a: str, b: str) -> int:
+                        for i, (ca, cb) in enumerate(zip(a, b)):
+                            if ca != cb:
+                                return i
+                        return min(len(a), len(b))
+
+                    naive = updated_resume.replace(original_achievements_block, new_rewritten_text)
+                    diff_idx = _first_diff(updated_resume, naive)
+                    ctx_start = max(0, diff_idx - 80)
+                    ctx_end = min(len(updated_resume), diff_idx + 80)
+                    log.debug(
+                        "Naive replace diff context",
+                        extra={
+                            "history_id": history_id,
+                            "diff_index": diff_idx,
+                            "before_context": updated_resume[ctx_start:ctx_end],
+                            "after_context": naive[ctx_start:ctx_end],
+                        },
+                    )
             else:
                 updated_resume = replaced_resume
 
-        # Step 5: Generate the new summary
-        log.info("Generating new professional summary...")
-        new_summary = llm_service.generate_professional_summary(updated_resume, summarized_jd)
-
-        # Step 6: Assemble the final resume with conditional logic
+        # Step 5: Conditionally generate the new summary and skills only if present
+        # Read the existing summary/skills from the profile (do NOT coerce to str — that can create 'None')
         old_summary = profile_data.get('base_summary_text')
+        old_skills = profile_data.get('base_skills_text')
 
+        new_summary = None
+        new_skills = None
+
+        # Generate and attempt to replace the professional summary only if one exists
         if old_summary:
-            log.info("Found existing summary. Replacing it.")
-            log.info("Old summary: %s", old_summary)
-            log.info("New summary: %s", new_summary)
-            # Use flexible replacement for summary as well; if it fails, prepend
-            replaced_resume, did_replace = _flexible_replace(updated_resume, old_summary, new_summary)
-            if did_replace:
-                final_resume = replaced_resume
-                log.info("Summary replaced using flexible match")
-            else:
-                log.warning("Summary replacement failed with flexible match; prepending new summary")
-                final_resume = f"{new_summary}\n\n{updated_resume}"
+            log.info("Found existing summary — generating replacement...")
+            try:
+                new_summary = llm_service.generate_professional_summary(updated_resume, app_data['target_job_description'])
+                log.info("Generated new summary")
+            except Exception:
+                log.exception("Failed to generate new professional summary; skipping replacement")
+
+            if new_summary:
+                log.info("Attempting flexible summary replacement")
+                replaced_resume, did_replace = _flexible_replace(updated_resume, old_summary, new_summary)
+                if did_replace:
+                    final_resume = replaced_resume
+                    log.info("Summary replaced using flexible match")
+                else:
+                    log.warning("Summary replacement failed with flexible match; leaving original summary")
+                    #final_resume = f"{new_summary}\n\n{final_resume}"
         else:
-            log.info("No existing summary found. Prepending new summary.")
-            final_resume = f"{new_summary}\n\n{updated_resume}"
+            log.info("No existing summary found; skipping summary generation and replacement")
+
+        # Generate and attempt to replace the skills section only if one exists
+        if old_skills:
+            log.info("Found existing skills — generating replacement...")
+            try:
+                new_skills = llm_service.generate_skills_section(updated_resume, summarized_jd, old_skills)
+                log.info("Generated new skills section")
+            except Exception:
+                log.exception("Failed to generate new skills section; skipping replacement")
+
+            if new_skills:
+                log.info("Attempting flexible skills replacement")
+                replaced_resume, did_replace_sk = _flexible_replace(final_resume, old_skills, new_skills)
+                if did_replace_sk:
+                    final_resume = replaced_resume
+                    log.info("Skills replaced using flexible match")
+                else:
+                    log.warning("Skills replacement failed with flexible match; leaving original skills")
+        else:
+            log.info("No existing skills found; skipping skills generation and replacement")
         
         # Step 7: Build a structured map of the updated fields to support granular UI copy
         updated_fields = {
             "professional_summary": new_summary,
+            "skills": new_skills,
             "work_history": [
                 {
                     "id": h["id"],
@@ -196,22 +293,23 @@ def run_tailoring_process(application_id: int, user_id: str):
             "final_resume_text": final_resume,
             "updated_fields": updated_fields,
             "status": "completed",
-            "gdrive_pdf_resume_id": gdrive_pdf_id,
             "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
         }
         try:
             response = supabase.table("applications").update(update_payload).eq("id", application_id).execute()
             log.info("Successfully completed tailoring")
-            if hasattr(response, "error") and response.error:
-                log.error("Failed to update application in Supabase", extra={"error": response.error})
-                raise Exception(f"Supabase update failed: {response.error}")
+            err = getattr(response, "error", None)
+            if err:
+                log.error("Failed to update application in Supabase", extra={"error": err})
+                raise Exception(f"Supabase update failed: {err}")
         except Exception as e:
             log.error("Exception occurred while updating application in Supabase", extra={"error": str(e)})
             raise Exception(f"Supabase update failed: {e}")
 
 
         # Optional Google Drive branch — if user has a master resume on Drive
-        gdrive_pdf_id = None
+        # gdrive_pdf_id = None
+        gdrive_doc_id: Optional[str] = None
         try:
             master_id = profile_data.get("gdrive_master_resume_id") if profile_data else None
             if master_id:
@@ -229,6 +327,17 @@ def run_tailoring_process(application_id: int, user_id: str):
                 dup_id: Optional[str] = dup_id_val if isinstance(dup_id_val, str) else None
                 if not dup_id:
                     log.warning("Duplicate file created without id; skipping Drive edits")
+                else:
+                    # Persist the Google Doc source id to applications for future exports
+                    try:
+                        gdrive_doc_id = dup_id
+                        supabase.table("applications").update({
+                            "gdrive_doc_resume_id": gdrive_doc_id,
+                            "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
+                        }).eq("id", application_id).execute()
+                        log.info("Saved gdrive_doc_resume_id to application", extra={"application_id": application_id, "doc_id": gdrive_doc_id})
+                    except Exception as e:
+                        log.exception("Failed to save gdrive_doc_resume_id to application; continuing", extra={"error": str(e)})
 
                 # Apply per-history replacements on the Drive doc
                 for history in job_histories_to_rewrite:
@@ -240,15 +349,22 @@ def run_tailoring_process(application_id: int, user_id: str):
                     if not original_achievements_block or not new_rewritten_text:
                         continue
                     try:
-                        gdrive_utils.replace_text_in_doc(dup_id, original_achievements_block, new_rewritten_text, replace_all=False)
+                        # Prefer whole-block flexible replacement (whitespace tolerant). Fallback to basic replace.
+                        res = gdrive_utils.replace_text_block_flexible(dup_id, original_achievements_block, new_rewritten_text)
+                        if not res.get("updated"):
+                            log.warning("Flexible block replace failed; falling back to basic replace", extra={"history_id": h_id})
+                            gdrive_utils.replace_text_in_doc(dup_id, original_achievements_block, new_rewritten_text, replace_all=False)
                     except Exception:
                         log.exception("Drive replace failed for job history", extra={"history_id": h_id})
 
                 # Replace or prepend summary in the Drive doc
                 if dup_id:
-                    if old_summary:
+                    if old_summary and new_summary:
                         try:
-                            gdrive_utils.replace_text_in_doc(dup_id, old_summary, new_summary, replace_all=False)
+                            res = gdrive_utils.replace_text_block_flexible(dup_id, old_summary, new_summary)
+                            if not res.get("updated"):
+                                log.warning("Flexible summary replace failed; falling back to basic replace")
+                                gdrive_utils.replace_text_in_doc(dup_id, old_summary, new_summary, replace_all=False)
                         except Exception:
                             log.exception("Drive replace failed for summary; attempting prepend")
                             try:
@@ -256,45 +372,62 @@ def run_tailoring_process(application_id: int, user_id: str):
                             except Exception:
                                 log.exception("Drive prepend failed for summary as well")
                     else:
+                        logging.info("No existing summary found or no generated summary; skipping Drive summary replacement")
+                    #    try:
+                    #        gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
+                    #    except Exception:
+                    #        log.exception("Drive prepend failed for summary")
+
+                    # Replace skills section in the Drive doc if present
+                    if old_skills and new_skills:
                         try:
-                            gdrive_utils.prepend_text_to_doc_top(dup_id, new_summary)
+                            res = gdrive_utils.replace_text_block_flexible(dup_id, old_skills, new_skills)
+                            if not res.get("updated"):
+                                log.warning("Flexible skills replace failed; falling back to basic replace")
+                                gdrive_utils.replace_text_in_doc(dup_id, old_skills, new_skills, replace_all=False)
                         except Exception:
-                            log.exception("Drive prepend failed for summary")
+                            log.exception("Drive replace failed for skills section")
+                    else:
+                        log.info("No existing skills found or no generated skills; skipping Drive skills replacement")
 
                 # Export to PDF on Drive
-                try:
-                    if dup_id:
-                        gdrive_pdf_id = gdrive_utils.export_doc_to_pdf(dup_id, f"{desired_name}.pdf")
-                except Exception:
-                    log.exception("Drive export to PDF failed")
+                #try:
+                #    if dup_id:
+                #        gdrive_pdf_id = gdrive_utils.export_doc_to_pdf(dup_id, f"{desired_name}.pdf")
+                #except Exception:
+                #    log.exception("Drive export to PDF failed")
             else:
                 log.warning("No Drive document ID found; skipping Drive updates")
         except Exception:
             log.exception("Google Drive tailoring branch failed; continuing without Drive artifacts")
 
-        if gdrive_pdf_id:
-            # Add gdrive_pdf_id to the application in the database
-            log.info("Updating application in Supabase with gdrive_pdf_id...")
-            # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
-            gdrive_payload = {
-                "gdrive_pdf_resume_id": gdrive_pdf_id,
-                "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
-            }
-            try:
-                response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
-                log.info("Successfully Added gdrive_pdf_id to application")
-                if hasattr(response, "error") and response.error:
-                    log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": response.error})
-                    raise Exception(f"Supabase update failed: {response.error}")
-            except Exception as e:
-                log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
-                raise Exception(f"Supabase update failed: {e}")
+        # if gdrive_pdf_id:
+        #     # Add gdrive_pdf_id to the application in the database
+        #     log.info("Updating application in Supabase with gdrive_pdf_id...")
+        #     # Ensure this field exists in your Supabase "applications" table and is documented in your data model.
+        #     gdrive_payload = {
+        #         "gdrive_pdf_resume_id": gdrive_pdf_id,
+        #         "updated_at": datetime.datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        #     }
+        #     try:
+        #         response = supabase.table("applications").update(gdrive_payload).eq("id", application_id).execute()
+        #         log.info("Successfully Added gdrive_pdf_id to application")
+        #         err = getattr(response, "error", None)
+        #         if err:
+        #             log.error("Failed to add gdrive_pdf_id to application in Supabase", extra={"error": err})
+        #             raise Exception(f"Supabase update failed: {err}")
+        #     except Exception as e:
+        #         log.error("Exception occurred while adding gdrive_pdf_id to application in Supabase", extra={"error": str(e)})
+        #         raise Exception(f"Supabase update failed: {e}")
 
 
 
     except Exception as e:
         log.exception("Error during tailoring process", exc_info=True)
-        supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
+        try:
+            supabase.table("applications").update({"status": "failed"}).eq("id", application_id).execute()
+        except Exception as update_exc:
+            log.error("Failed to update application status to 'failed'", extra={"error": str(update_exc)})
 
 
 def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> tuple[str, str]:

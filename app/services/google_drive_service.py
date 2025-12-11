@@ -62,9 +62,8 @@ SERVER_SERVICE_ACCOUNT_PATH = str(Path(__file__).resolve().parent.parent / SERVE
 # Shared Drive folder where server should store master resumes. Can be overridden via env.
 SHARED_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_SHARED_DRIVE_FOLDER_ID", "0ABNYGt-LYK-JUk9PVA")
 DRIVE_SCOPES = [
-    # drive.file only gives access to files created or explicitly opened by the app.
-    # Add readonly so the app can read user files the user has access to.
-    "https://www.googleapis.com/auth/drive.file",
+    # Minimal scope to read files the user selects via Picker or
+    # any files the user already has access to. No write/create.
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
@@ -179,9 +178,20 @@ def load_credentials(user_id: str):
         creds = Credentials.from_authorized_user_info(info, scopes=DRIVE_SCOPES)
         if not creds.valid:
             if creds.refresh_token:
-                creds.refresh(Request())
-                # Persist refreshed tokens
-                save_credentials(user_id, json.loads(creds.to_json()))
+                try:
+                    creds.refresh(Request())
+                    # Persist refreshed tokens
+                    save_credentials(user_id, json.loads(creds.to_json()))
+                except Exception as e:
+                    msg = str(e)
+                    # If the refresh fails due to invalid_grant, clear stored creds and force re-auth
+                    if "invalid_grant" in msg or "Token has been expired or revoked" in msg:
+                        try:
+                            get_supabase().table(TOK_TABLE).delete().eq("user_id", str(user_id)).execute()
+                        except Exception:
+                            pass
+                        raise HTTPException(status_code=401, detail="Google Drive authorization expired or revoked; please re-authorize.")
+                    raise HTTPException(status_code=500, detail=f"Failed to refresh Google tokens: {e}")
             else:
                 raise HTTPException(status_code=401, detail="Missing refresh token; re-authorize required")
         return creds
@@ -398,14 +408,9 @@ def export_google_doc_text(drive_service, file_id: str) -> str:
 def export_google_doc_bytes(drive_service, file_id: str, export_mime: str) -> bytes:
     """Export a Google Doc to the specified mime type and return raw bytes."""
     try:
-        try:
-            # Preferred: include supportsAllDrives for shared-drive support
-            data = drive_service.files().export(fileId=file_id, mimeType=export_mime, supportsAllDrives=True).execute()
-        except TypeError:
-            # Some googleapiclient versions don't accept supportsAllDrives on export()
-            # Retry without the kwarg (best-effort fallback).
-            log.info("export() does not accept supportsAllDrives param, retrying without it", extra={"file_id": file_id, "export_mime": export_mime})
-            data = drive_service.files().export(fileId=file_id, mimeType=export_mime).execute()
+        # Call export without supportsAllDrives for compatibility with googleapiclient versions
+        # that do not accept that kwarg on files().export().
+        data = drive_service.files().export(fileId=file_id, mimeType=export_mime).execute()
 
         if isinstance(data, bytes):
             return data

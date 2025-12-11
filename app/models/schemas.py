@@ -1,5 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict
 from typing import List, Optional, Dict, Any
 
 
@@ -15,6 +16,8 @@ class ApplicationResponse(BaseModel):
     status: str
     target_job_description: str
     final_resume_text: Optional[str] = None
+    # ID of the Google Doc source for the tailored resume (Drive file ID)
+    gdrive_doc_resume_id: Optional[str] = None
     # Consolidated JSON of the specific resume sections the workflow updated.
     # Example shape:
     # {
@@ -87,6 +90,11 @@ class ResumeSummaryResponse(BaseModel):
     summary: Optional[str] = None
 
 
+class ResumeSkillsResponse(BaseModel):
+    """Return the stored skills section for a user."""
+    skills: Optional[str] = None
+
+
 # --- Profile Setup Schemas ---
 
 class ResumeUpload(BaseModel):
@@ -115,6 +123,32 @@ class JobHistoryResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class ProcessResumeResponse(BaseModel):
+    """Response for the `/process-resume` endpoint.
+
+    Fields:
+    - jobs: list of parsed job history records inserted for the user
+    - summary: extracted professional summary text (optional)
+    - skills: extracted skills section text (optional)
+    """
+    jobs: List[JobHistoryResponse]
+    summary: Optional[str] = None
+    skills: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+class JobHistoriesResponse(BaseModel):
+    """Combined response for job histories plus stored summary and skills.
+
+    Returned by GET /profiles/job-histories.
+    """
+    jobs: List[JobHistoryResponse]
+    summary: Optional[str] = None
+    skills: Optional[str] = None
+
+    class Config:
+        orm_mode = True
         
 class ProfileResponse(BaseModel):
     id: str
@@ -144,5 +178,44 @@ class GoogleDriveOpenFileResponse(BaseModel):
     source: GoogleDriveFileRef
     destination: GoogleDriveFileRef
     content: str
+    content_md: str
+
+
+class ResumeFileUploadResponse(BaseModel):
+    """Response for uploading a resume file directly to the server.
+
+    Mirrors the output shape of Google Drive open-file but without a source ref.
+    """
+    destination: GoogleDriveFileRef
+    content: str
+    content_md: str
+
+
+# --- Structured Output Schemas for LLM Extraction ---
+
+class ResumeHistoryItem(BaseModel):
+    """Single resume history entry extracted by the LLM.
+
+    Fields mirror the expected output of the resume history extractor agent.
+    """
+    history_job_title: str
+    history_company_name: str
+    # Entire achievements/responsibilities block as a single string
+    history_job_achievements: str
+
+    # Ensure additionalProperties: false in generated JSON Schema
+    model_config = ConfigDict(extra='forbid')
+
+
+class ResumeHistoryExtraction(BaseModel):
+    """Top-level schema for structured extraction of resume history.
+
+    The extractor agent should return an object with a `jobs` array of
+    ResumeHistoryItem. We forbid additional properties to keep schema strict.
+    """
+    jobs: List[ResumeHistoryItem]
+
+    # Ensure additionalProperties: false in generated JSON Schema
+    model_config = ConfigDict(extra='forbid')
 
 
