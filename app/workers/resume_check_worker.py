@@ -35,14 +35,12 @@ def process_pending_jobs():
                 supabase.table("resume_checks").update({"status": "processing", "updated_at": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()}).eq("id", job_id).execute()
                 try:
                     summarize_flag = job.get("summarize_job_post", True)
-                    run_analysis_flag = job.get("run_analysis", True)
                     raw_score_csv, analysis = run_resume_check_process(
                         user_id=job["user_id"],
                         job_post=job["job_post"],
                         resume_text=job.get("resume_text"),
                         summarize_job_post=summarize_flag,
-                        qualifications=job.get("qualifications"),
-                        run_analysis=run_analysis_flag,
+                        qualifications=job.get("qualifications")
                     )
                     score = app.utils.csv_to_score.csv_to_score(raw_score_csv)
                     supabase.table("resume_checks").update({

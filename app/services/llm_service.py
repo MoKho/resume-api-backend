@@ -314,7 +314,7 @@ def generate_professional_summary(updated_resume: str, summarized_job_descriptio
     log = bind_logger(logger, {"agent_name": "generate_professional_summary"})
 
     log.info("LLM Service: Generating new professional summary")
-    custom_settings = {"reasoning_effort": "high", "temperature": 0.2}
+    custom_settings = {"reasoning_effort": "medium"}
     user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>"
     return call_llm_provider(
         provider_name='groq',
@@ -329,7 +329,7 @@ def generate_skills_section(updated_resume: str, summarized_job_description: str
     log = bind_logger(logger, {"agent_name": "generate_skills_section"})
 
     log.info("LLM Service: Generating tailored skills section")
-    custom_settings = {"reasoning_effort": "medium"}
+    custom_settings = {"reasoning_effort": "medium", "temperature": 0.2}
     user_prompt = f"<JobDescription>\n{summarized_job_description}\n</JobDescription>\n\n<Resume>\n{updated_resume}\n</Resume>\n\n<old_skills>\n{old_skills}\n</old_skills>"
     return call_llm_provider(
         provider_name='groq',
