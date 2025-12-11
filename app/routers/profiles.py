@@ -360,6 +360,8 @@ async def enqueue_resume_check(request: ResumeCheckRequest, user=Depends(get_cur
             "analysis": None,
             "error": None,
             "summarize_job_post": request.summarize_job_post if getattr(request, "summarize_job_post", None) is not None else True,
+            # Whether to run a full textual analysis (LLM) in addition to numeric scoring
+            "run_analysis": request.run_analysis if getattr(request, "run_analysis", None) is not None else True,
             "created_at": now,
             "updated_at": now
         }
@@ -393,10 +395,12 @@ async def get_resume_check_status(job_id: int, user=Depends(get_current_user)):
         if row.get("user_id") != user_id:
             raise HTTPException(status_code=403, detail="Not authorized to view this job")
 
+        # Only return the textual analysis if the job was configured to run analysis
+        analysis_value = row.get("analysis") if row.get("run_analysis", True) else None
         return {
             "job_id": row.get("id"),
             "status": row.get("status"),
-            "analysis": row.get("analysis"),
+            "analysis": analysis_value,
             "score": row.get("score"),
             "raw_score_csv": row.get("raw_score_csv"),
             "error": row.get("error"),

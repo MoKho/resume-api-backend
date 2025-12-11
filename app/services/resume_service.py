@@ -430,7 +430,7 @@ def run_tailoring_process(application_id: int, user_id: str):
             log.error("Failed to update application status to 'failed'", extra={"error": str(update_exc)})
 
 
-def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None) -> tuple[str, str]:
+def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[str] = None, summarize_job_post: bool = True, qualifications: Optional[str] = None, run_analysis: bool = True) -> tuple[str, str]:
     """
     Run a resume vs job-post analysis and return a detailed textual analysis.
 
@@ -514,7 +514,11 @@ def run_resume_check_process(user_id: str, job_post: str, resume_text: Optional[
         assert isinstance(resume_to_check, str)
         # Pass the qualifications text directly to the LLM for scoring (LLMs can parse strings)
         score = llm_service.score_resume(resume_to_check, qualifications_text or "")
-        analysis = llm_service.check_resume(resume_to_check, job_post or "")
+        # Only run the heavier textual analysis if requested
+        if run_analysis:
+            analysis = llm_service.check_resume(resume_to_check, job_post or "")
+        else:
+            analysis = ""
 
         log.info("Analysis complete — returning results")
         return (score, analysis)
