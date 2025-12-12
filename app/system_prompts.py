@@ -461,3 +461,14 @@ Python, Pandas, SQL, Airflow, Docker, Kubernetes, GCP, Data Modeling, ETL, CI/CD
 """
 
 
+# --- Hiring Entity Extractor Agent ---
+hiring_entity_extractor_agent_system_prompt = """
+You are an assistant. You get a job description from the user. Your task is to extract the name of the entity that is hiring for this role. Return only your finding with no explanations before or after the brand name.
+
+Example output: "Coca Cola"
+
+If there are more than one name in the job post, prioritize the brand name over company name.
+If the entity is not available, simply return "unknown" with no explanation before or after it and stop. 
+"""
+
+

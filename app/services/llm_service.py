@@ -7,7 +7,8 @@ import datetime
 from openai import OpenAI, APIError
 from dotenv import load_dotenv
 from app import system_prompts
-from typing import List, Type, Tuple, Optional
+from typing import List, Type, Tuple, Optional, Dict, Any
+from app.services import google_drive_service as gds
 from app.logging_config import get_logger, bind_logger, configure_logging
 from app.utils.text_cleaning import normalize_to_ascii
 from app.models.schemas import ResumeHistoryExtraction, ResumeHistoryItem
@@ -535,6 +536,88 @@ def extract_job_qualifications(summarized_job_description: str) -> str:
     
     except Exception as e:
         log.error(f"An error occurred during qualifications extraction: {e}")
+        raise
+
+
+def extract_hiring_entity(job_post: str) -> str:
+    """Extract the hiring entity (brand name) from a job post using the LLM.
+
+    Returns the cleaned entity string with spaces removed and quotes stripped,
+    or the literal string "unknown" when the model indicates no entity.
+    """
+    slog = bind_logger(logger, {"agent_name": "extract_hiring_entity"})
+    slog.info("LLM Service: Extracting hiring entity from job post")
+    try:
+        # Request raw output from the LLM and run our own normalization
+        response = call_llm_provider(
+            provider_name="groq",
+            workload_difficulty="job-description-extractor-agent",
+            system_prompt=system_prompts.hiring_entity_extractor_agent_system_prompt,
+            user_prompt=job_post,
+            clean_to_ascii=False,
+            custom_settings={"temperature": 0.0},
+        )
+
+        # Normalize to ASCII using our utility so we can log replacements
+        found, cleaned_text, replacements = normalize_to_ascii(response)
+        if found:
+            slog.info("Non-ASCII characters found and sanitized", extra={"replacements": replacements})
+
+        # Remove quotes, apostrophes and whitespace between words
+        cleaned = cleaned_text.strip()
+        if not cleaned:
+            return "unknown"
+        for ch in ['"', "'", '`', '“', '”', '‘', '’']:
+            cleaned = cleaned.replace(ch, '')
+        # remove newlines and tabs and spaces between words
+        cleaned = cleaned.replace('\n', '').replace('\r', '').replace('\t', '')
+        cleaned = cleaned.replace(' ', '')
+
+        # If still empty, return unknown
+        if not cleaned:
+            return "unknown"
+
+        return cleaned
+    except Exception:
+        slog.exception("Failed to extract hiring entity", exc_info=True)
+        raise
+
+
+def append_hiring_entity_to_drive_file(file_id: str, job_post: str) -> Dict[str, Any]:
+    """Extract hiring entity and append it to the Drive file name.
+
+    Uses the server service account to rename the file. If the entity is
+    "unknown" the function will not rename and will return updated=False.
+    Returns a dict with keys: updated (bool), entity (str), updated_metadata (optional).
+    """
+    slog = bind_logger(logger, {"agent_name": "append_hiring_entity_to_drive_file"})
+    slog.info("Appending hiring entity to Drive file name", extra={"file_id": file_id})
+
+    entity = extract_hiring_entity(job_post)
+    if isinstance(entity, str) and entity.lower() == "unknown":
+        slog.info("Hiring entity unknown; skipping rename", extra={"file_id": file_id})
+        return {"updated": False, "entity": "unknown"}
+
+    try:
+        drive = gds.build_server_drive_service()
+        meta = gds.get_file_metadata(drive, file_id, fields="id,name,mimeType,parents")
+        orig_name = meta.get("name") or ""
+        # Insert entity before the file extension (preserve extension).
+        # e.g., "Resume.pdf" -> "Resume_Entity.pdf"
+        root, ext = os.path.splitext(orig_name)
+        # If there's no extension, ext will be '', and we simply append
+        # Avoid duplicating the entity if already present
+        suffix = f"_{entity}"
+        if root.endswith(suffix):
+            slog.info("Entity already present in file name; skipping rename", extra={"file_id": file_id, "name": orig_name})
+            return {"updated": False, "entity": entity, "updated_metadata": meta}
+
+        new_name = f"{root}{suffix}{ext}"
+        updated = gds.rename_file(drive, file_id, new_name)
+        slog.info("Renamed file to include hiring entity", extra={"file_id": file_id, "new_name": new_name})
+        return {"updated": True, "entity": entity, "updated_metadata": updated}
+    except Exception:
+        slog.exception("Failed to append hiring entity to Drive file", exc_info=True)
         raise
 
 

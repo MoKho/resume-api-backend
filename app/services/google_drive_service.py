@@ -298,6 +298,26 @@ def get_file_metadata(drive_service, file_id: str, fields: str = "id, name, mime
         raise HTTPException(status_code=404, detail=f"Failed to read file metadata: {e}")
 
 
+def rename_file(drive_service, file_id: str, new_name: str) -> Dict[str, Any]:
+    """Rename a Drive file (supports Shared Drives). Returns updated metadata.
+
+    Args:
+        drive_service: an authenticated Drive v3 service object
+        file_id: id of the file to rename
+        new_name: desired new name for the file
+    """
+    try:
+        body = {"name": new_name}
+        updated = (
+            drive_service.files()
+            .update(fileId=file_id, body=body, supportsAllDrives=True, fields="id,name,mimeType,parents")
+            .execute()
+        )
+        return updated
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rename file: {e}")
+
+
 def upload_bytes_as_google_doc(server_drive_service, content: bytes, source_mime: str, name: str) -> Dict[str, Any]:
     """Upload given bytes to the server Drive and convert into a Google Doc.
 
